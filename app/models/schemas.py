@@ -1,0 +1,53 @@
+"""
+Pydantic request/response schemas. JS parallel: like Zod + TypeScript interfaces.
+"""
+from datetime import datetime
+from pydantic import BaseModel, Field
+
+
+class ChatMessage(BaseModel):
+    role: str  # "user" | "assistant" | "system"
+    content: str
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1)
+    history: list[ChatMessage] = Field(default_factory=list)
+
+
+class PortfolioPositionCreate(BaseModel):
+    symbol: str = Field(..., min_length=1, max_length=32)
+    quantity: float = Field(..., gt=0)
+    entry_price: float = Field(..., gt=0)
+    notes: str | None = None
+
+
+class PortfolioPositionOut(BaseModel):
+    id: int
+    symbol: str
+    quantity: float
+    entry_price: float
+    notes: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PortfolioOut(BaseModel):
+    positions: list[PortfolioPositionOut]
+    total_positions: int
+
+
+class NotificationOut(BaseModel):
+    id: int
+    title: str
+    body: str
+    suggested_action: str | None
+    read: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class NotificationRead(BaseModel):
+    read: bool = True
