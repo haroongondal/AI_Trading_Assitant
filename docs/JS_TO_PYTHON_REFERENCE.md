@@ -66,7 +66,7 @@ Use this to explain the backend code in C-level interviews by mapping Python con
 
 | JavaScript / Node | Python |
 |-------------------|--------|
-| `package.json`, `npm install` | `requirements.txt`, `pip install -r requirements.txt` |
+| `package.json`, `npm install` | `pyproject.toml`, `pip install -e .` |
 | `src/routes/`, `src/services/` | `app/api/`, `app/services/` |
 | Import from `"@/lib/api"` | `from app.services.ollama_client import get_llm` (package = directory with `__init__.py`) |
 

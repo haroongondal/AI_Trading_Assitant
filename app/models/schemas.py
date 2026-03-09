@@ -18,8 +18,12 @@ class ChatRequest(BaseModel):
 class PortfolioPositionCreate(BaseModel):
     symbol: str = Field(..., min_length=1, max_length=32)
     quantity: float = Field(..., gt=0)
-    entry_price: float = Field(..., gt=0)
+    entry_price: float | None = Field(default=None, gt=0)  # optional; 0 used when omitted for analysis
     notes: str | None = None
+
+
+class PortfolioGoalUpdate(BaseModel):
+    goal: str | None = None
 
 
 class PortfolioPositionOut(BaseModel):
@@ -36,6 +40,7 @@ class PortfolioPositionOut(BaseModel):
 class PortfolioOut(BaseModel):
     positions: list[PortfolioPositionOut]
     total_positions: int
+    goal: str | None = None
 
 
 class NotificationOut(BaseModel):

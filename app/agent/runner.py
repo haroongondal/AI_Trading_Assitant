@@ -17,7 +17,13 @@ from app.services.ollama_client import get_llm
 from app.tools.rag import query_rag
 from app.tools.memory import memory_tools
 from app.tools.web_search import web_search_tool
-from app.tools.portfolio import portfolio_tool
+from app.tools.portfolio import (
+    get_portfolio,
+    add_position,
+    delete_position,
+    update_position,
+    set_portfolio_goal,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +32,24 @@ SYSTEM_PROMPT = """You are a helpful AI trading assistant. You have access to th
 - remember: store a fact or preference the user wants you to remember
 - recall: recall stored facts and recent conversation
 - search_web: search the web for current market info
-- get_portfolio: get the user's portfolio positions
+- get_portfolio: get the user's portfolio positions and their stated goal (includes position id per row)
+- add_position: add a new position (symbol, quantity, optional notes). Use when the user asks to add a coin.
+- delete_position: remove a position by symbol. Use when the user asks to remove or sell a coin.
+- update_position: change an existing position by id (position_id, optional quantity, entry_price, notes). Use when the user asks to change quantity or entry price of an existing position (e.g. "update BTC 0.002 to 0.003", "change position id 2 to 0.005"). Call get_portfolio first to get position ids if needed.
+- set_portfolio_goal: update the user's portfolio goal (text). Use when the user states what they want to achieve.
 
-Use the right tool when the user asks about their portfolio, recent news, or wants you to remember something. Be concise and professional."""
+When the user asks to update their portfolio (e.g. "add 2 ETH", "remove BTC", "update BTC quantity to 0.003", "my goal is long-term growth"), call the appropriate tool then confirm. Be concise and professional."""
 
-TOOLS: list[BaseTool] = [query_rag, web_search_tool, portfolio_tool, *memory_tools]
+TOOLS: list[BaseTool] = [
+    query_rag,
+    web_search_tool,
+    get_portfolio,
+    add_position,
+    delete_position,
+    update_position,
+    set_portfolio_goal,
+    *memory_tools,
+]
 TOOL_MAP = {t.name: t for t in TOOLS}
 
 
@@ -53,10 +72,10 @@ async def _run_tool(name: str, args: dict) -> str:
 async def stream_agent_response(
     message: str,
     history: list[dict],
-) -> AsyncGenerator[str, None]:
+) -> AsyncGenerator[str | dict, None]:
     """
     Run agent with tools; yield content tokens. When LLM returns tool_calls, run them and continue.
-    Yields: content chunks (strings) to send to the client.
+    Yields: content chunks (strings) for the assistant message, or dict with event/data for status (e.g. tool progress).
     """
     llm = get_llm().bind_tools(TOOLS)
     messages: list = [SystemMessage(content=SYSTEM_PROMPT)]
@@ -89,6 +108,8 @@ async def stream_agent_response(
         if not current_tool_calls:
             break
 
+        # Send tool status as a separate event so the client can show it apart from the answer
+        yield {"event": "status", "data": "*Checking portfolio and tools...*"}
         # Run tool calls and append results to messages
         tool_messages = []
         for tc in current_tool_calls:

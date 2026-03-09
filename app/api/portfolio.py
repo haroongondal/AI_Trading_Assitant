@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.db.session import get_db
 from app.db.models import User, PortfolioPosition
-from app.models.schemas import PortfolioPositionCreate, PortfolioPositionOut, PortfolioOut
+from app.models.schemas import PortfolioPositionCreate, PortfolioPositionOut, PortfolioOut, PortfolioGoalUpdate
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -37,7 +37,7 @@ async def _ensure_user(db: AsyncSession) -> User:
 
 @router.get("", response_model=PortfolioOut)
 async def list_portfolio(db: AsyncSession = Depends(get_db)):
-    await _ensure_user(db)
+    user = await _ensure_user(db)
     result = await db.execute(
         select(PortfolioPosition).where(PortfolioPosition.user_id == settings.DEFAULT_USER_ID)
     )
@@ -45,6 +45,7 @@ async def list_portfolio(db: AsyncSession = Depends(get_db)):
     return PortfolioOut(
         positions=[PortfolioPositionOut.model_validate(p) for p in positions],
         total_positions=len(positions),
+        goal=user.portfolio_goal,
     )
 
 
@@ -54,17 +55,35 @@ async def create_position(
     db: AsyncSession = Depends(get_db),
 ):
     await _ensure_user(db)
+    entry = body.entry_price if body.entry_price is not None else 0.0
     pos = PortfolioPosition(
         user_id=settings.DEFAULT_USER_ID,
         symbol=body.symbol.upper(),
         quantity=body.quantity,
-        entry_price=body.entry_price,
+        entry_price=entry,
         notes=body.notes,
     )
     db.add(pos)
     await db.flush()
     await db.refresh(pos)
     return PortfolioPositionOut.model_validate(pos)
+
+
+@router.get("/goal")
+async def get_portfolio_goal(db: AsyncSession = Depends(get_db)):
+    user = await _ensure_user(db)
+    return {"goal": user.portfolio_goal}
+
+
+@router.patch("/goal", response_model=dict)
+async def update_portfolio_goal(
+    body: PortfolioGoalUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    user = await _ensure_user(db)
+    user.portfolio_goal = body.goal
+    await db.flush()
+    return {"goal": user.portfolio_goal}
 
 
 @router.delete("/{position_id}")

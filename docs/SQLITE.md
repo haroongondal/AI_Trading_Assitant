@@ -10,7 +10,7 @@ The backend uses **SQLite** for users, portfolio positions, and notifications. N
    ```
    This path is resolved relative to the backend root, so the file is always created at `backend/data/trading_assistant.db` regardless of where you run `uvicorn` from.
 
-2. **Dependencies**: Already in `requirements.txt`:
+2. **Dependencies**: Declared in `pyproject.toml` (install with `pip install -e .`):
    - `aiosqlite` – async SQLite driver
    - `sqlalchemy[asyncio]` – ORM and async engine
 

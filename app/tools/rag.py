@@ -52,3 +52,14 @@ def query_rag(query: str) -> str:
 def get_vectorstore():
     get_rag_retriever()
     return _vectorstore
+
+
+def clear_vectorstore():
+    """Remove all documents from the collection so the next ingest is fresh (no duplicate articles)."""
+    global _vectorstore
+    if _vectorstore is not None:
+        try:
+            _vectorstore.delete_collection()
+        except Exception:
+            pass
+        _vectorstore = None

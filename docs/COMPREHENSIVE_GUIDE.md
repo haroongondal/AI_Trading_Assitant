@@ -40,11 +40,11 @@ source .venv/bin/activate   # Linux/macOS
 ### Step 4: Install dependencies
 
 ```bash
-pip install -r requirements.txt
+pip install -e .
 ```
 
-- **What this does**: Reads `requirements.txt` and installs every listed package (and their dependencies) into `.venv`. So you get FastAPI, LangChain, SQLAlchemy, etc.
-- **Python concept**: **pip** is the default package installer (like `npm install`). **requirements.txt** is like `package.json` dependencies, but a simple list of `name==version` lines.
+- **What this does**: Installs the project from `pyproject.toml` (and their dependencies) into `.venv`. So you get FastAPI, LangChain, SQLAlchemy, etc.
+- **Python concept**: **pip** is the default package installer (like `npm install`). **pyproject.toml** (PEP 621) declares project metadata and dependencies; `pip install -e .` installs the package in editable mode.
 
 ### Step 5: Create data directory (optional)
 
@@ -78,9 +78,9 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ## 1.2 Configuration Files
 
-### `requirements.txt`
+### `pyproject.toml`
 
-- **Role**: Declares Python dependencies and their versions.
+- **Role**: Declares project metadata and Python dependencies (PEP 621).
 - **What each group does** (conceptually):
   - **FastAPI & server**: `fastapi`, `uvicorn`, `sse-starlette` — web framework, ASGI server, SSE streaming.
   - **Config & validation**: `pydantic`, `pydantic-settings` — load and validate config and request/response bodies.
@@ -90,6 +90,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
   - **Scheduler**: `apscheduler` — cron-like jobs (news fetch, analysis).
   - **Database**: `aiosqlite`, `sqlalchemy` — async SQLite and ORM.
   - **Utils**: `python-dotenv`, `feedparser`, `duckduckgo-search` — env loading, RSS, search.
+- **Install**: `pip install -e .` from the backend directory.
 
 ### `.env` and `.env.example`
 
@@ -138,7 +139,7 @@ backend/
 │       └── scheduler.py  # APScheduler: news + ingest, analyze + notify
 ├── data/                 # Created at runtime: SQLite DB, Chroma data
 ├── docs/                 # This guide and other docs
-├── requirements.txt
+├── pyproject.toml        # Project metadata and dependencies
 ├── .env
 ├── .env.example
 └── Dockerfile

@@ -5,7 +5,7 @@ import logging
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from app.tools.rag import get_vectorstore
+from app.tools.rag import get_vectorstore, clear_vectorstore
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,7 @@ def ingest_documents(docs: list[dict]) -> int:
     if not chunks:
         return 0
     try:
+        clear_vectorstore()
         vs = get_vectorstore()
         vs.add_documents(chunks)
         logger.info("Ingested %s chunks into RAG", len(chunks))

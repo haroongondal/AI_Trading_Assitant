@@ -6,9 +6,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY pyproject.toml .
 COPY . .
+RUN pip install --no-cache-dir -e .
 RUN mkdir -p /app/data
 
 ENV PYTHONUNBUFFERED=1
