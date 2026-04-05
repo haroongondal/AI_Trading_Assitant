@@ -56,3 +56,9 @@ class NotificationOut(BaseModel):
 
 class NotificationRead(BaseModel):
     read: bool = True
+
+
+class UserOut(BaseModel):
+    id: str
+    name: str
+    email: str | None = None

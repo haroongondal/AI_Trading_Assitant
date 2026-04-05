@@ -44,3 +44,20 @@ def format_prices_for_prompt(prices: dict[str, float]) -> str:
         return "Current prices: unavailable (price API did not return data)."
     lines = [f"{sym}: ${p:,.2f}" for sym, p in sorted(prices.items())]
     return "Current prices (USD): " + ", ".join(lines)
+
+
+def non_crypto_price_disclaimer(portfolio_symbols: list[str], crypto_prices: dict[str, float]) -> str:
+    """
+    Remind the model that CoinGecko-style prices only cover symbols present in crypto_prices;
+    equities/PSX tickers must not get invented spot prices.
+    """
+    if not portfolio_symbols:
+        return ""
+    known = {k.upper() for k in crypto_prices.keys()}
+    missing = sorted({s.upper() for s in portfolio_symbols if s.upper() not in known})
+    if not missing:
+        return ""
+    return (
+        "The live price list above is from the crypto feed only. "
+        f"These portfolio tickers are not in that feed—do not invent prices for them: {', '.join(missing)}."
+    )

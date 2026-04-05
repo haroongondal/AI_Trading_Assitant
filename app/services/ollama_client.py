@@ -11,8 +11,11 @@ logger = logging.getLogger(__name__)
 
 def get_llm():
     """Return ChatOllama instance with project config. JS parallel: factory that returns a configured client."""
-    return ChatOllama(
-        base_url=settings.OLLAMA_BASE_URL,
-        model=settings.OLLAMA_MODEL,
-        temperature=0.3,
-    )
+    kwargs: dict = {
+        "base_url": settings.OLLAMA_BASE_URL,
+        "model": settings.OLLAMA_MODEL,
+        "temperature": settings.OLLAMA_TEMPERATURE,
+    }
+    if settings.OLLAMA_NUM_CTX is not None:
+        kwargs["num_ctx"] = settings.OLLAMA_NUM_CTX
+    return ChatOllama(**kwargs)

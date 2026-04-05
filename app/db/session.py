@@ -56,8 +56,27 @@ def _add_portfolio_goal_if_missing(sync_conn):
         pass
 
 
+def _add_google_sub_if_missing(sync_conn):
+    """Add google_sub for OAuth users (nullable, unique when set)."""
+    try:
+        result = sync_conn.execute(text("PRAGMA table_info(users)"))
+        rows = result.fetchall()
+        if any(row[1] == "google_sub" for row in rows):
+            return
+        sync_conn.execute(text("ALTER TABLE users ADD COLUMN google_sub VARCHAR(255)"))
+        sync_conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_google_sub "
+                "ON users(google_sub) WHERE google_sub IS NOT NULL"
+            )
+        )
+    except Exception:
+        pass
+
+
 async def init_db():
     """Create tables if they don't exist. Migrate existing tables if needed."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_add_portfolio_goal_if_missing)
+        await conn.run_sync(_add_google_sub_if_missing)

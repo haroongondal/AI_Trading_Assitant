@@ -70,7 +70,8 @@ See [docs/SQLITE.md](docs/SQLITE.md) for more.
 
 See `.env.example`. Main: `OLLAMA_BASE_URL`, `OLLAMA_MODEL`,
 `OLLAMA_EMBEDDING_MODEL`, `DATABASE_URL`, `CHROMA_PERSIST_DIR`, `RAG_TOP_K`,
-`DEFAULT_USER_ID`. Scheduler: `SCHEDULER_HOUR_1`, `SCHEDULER_MINUTE_1`, `SCHEDULER_HOUR_2`, `SCHEDULER_MINUTE_2` (default 08:00 and 18:00). WhatsApp (optional): `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_RECIPIENT_PHONE`, `WHATSAPP_TEMPLATE_NAME`.
+`DEFAULT_USER_ID` (fallback when no JWT session). **Google OAuth (optional):** set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `FRONTEND_URL`, and `AUTH_JWT_SECRET` together (see `.env.example`). Optional: `GOOGLE_OAUTH_*` URLs, `GOOGLE_OAUTH_SCOPES`, `AUTH_JWT_ALGORITHM`, cookie names (`AUTH_ACCESS_COOKIE_NAME`, `OAUTH_STATE_COOKIE_NAME`), `AUTH_COOKIE_SAMESITE`, `AUTH_COOKIE_SECURE`, `AUTH_ERROR_REDIRECT_QUERY`. Portfolio, chat agent tools, notifications, and scheduled analysis are scoped per authenticated user; the scheduler runs analysis once per user in the database. Scheduler: `SCHEDULER_ENABLED` (default `false`) and `SCHEDULER_CRON` (default `"0 9,21 * * *"`). Agent: `AGENT_MAX_TURNS`, `OLLAMA_TEMPERATURE`, `OLLAMA_NUM_CTX`. WhatsApp (optional): `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_RECIPIENT_PHONE`, `WHATSAPP_TEMPLATE_NAME`.
+Email (optional): `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT`, `EMAIL_SMTP_STARTTLS`, `EMAIL_SMTP_USERNAME`, `EMAIL_SMTP_PASSWORD`, `EMAIL_FROM`, `EMAIL_DEFAULT_TO`.
 
 ## Run with Docker (backend + frontend)
 
@@ -85,7 +86,8 @@ on host at port 11434.
 
 ## Scheduler
 
-APScheduler runs **twice daily** (default 08:00 and 18:00; set `SCHEDULER_HOUR_1`/`SCHEDULER_MINUTE_1` and `SCHEDULER_HOUR_2`/`SCHEDULER_MINUTE_2` in `.env`). Each run: news fetch + RAG ingest, then portfolio + news analysis and in-app notification (and WhatsApp if configured).
+APScheduler is controlled with `SCHEDULER_ENABLED` and `SCHEDULER_CRON` in `.env`. Default cron is twice daily (`"0 9,21 * * *"`). Each run: news fetch + RAG ingest, then portfolio + news analysis and in-app notification per user (and WhatsApp if configured).
+If SMTP is configured, the same analysis is also emailed to each user's `email` from the users table.
 
 **Manual trigger (same as cron run):**
 
@@ -104,7 +106,7 @@ If you see no notifications, ensure `ollama pull nomic-embed-text` was run and t
 ## Project layout
 
 - `app/main.py` – FastAPI app
-- `app/api/` – routes (chat, portfolio, notifications, health, jobs)
+- `app/api/` – routes (chat, portfolio, notifications, auth, health, jobs)
 - `app/agent/` – ReAct agent and streaming
 - `app/tools/` – RAG, memory, web search, portfolio
 - `app/services/` – Ollama client, news fetch, RAG ingest

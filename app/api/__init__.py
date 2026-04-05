@@ -5,9 +5,11 @@ from .portfolio import router as portfolio_router
 from .notifications import router as notifications_router
 from .jobs import router as jobs_router
 from .coins import router as coins_router
+from .auth import router as auth_router
 
 api_router = APIRouter()
 api_router.include_router(health_router, prefix="/health", tags=["health"])
+api_router.include_router(auth_router, prefix="/auth", tags=["auth"])
 api_router.include_router(chat_router, prefix="/chat", tags=["chat"])
 api_router.include_router(portfolio_router, prefix="/portfolio", tags=["portfolio"])
 api_router.include_router(notifications_router, prefix="/notifications", tags=["notifications"])

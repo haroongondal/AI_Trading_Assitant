@@ -6,21 +6,23 @@ from sqlalchemy import select, and_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import User, PortfolioPosition
+from app.core.auth_context import get_effective_user_id
 from app.core.config import settings
+from app.db.models import User, PortfolioPosition
+from app.tools.symbol_normalize import normalize_trading_symbol
 
 
-async def _ensure_user(db: AsyncSession) -> User:
-    result = await db.execute(select(User).where(User.id == settings.DEFAULT_USER_ID))
+async def _ensure_user(db: AsyncSession, uid: str) -> User:
+    result = await db.execute(select(User).where(User.id == uid))
     user = result.scalar_one_or_none()
     if not user:
-        user = User(id=settings.DEFAULT_USER_ID, name="Demo User")
+        user = User(id=uid, name="Demo User" if uid == settings.DEFAULT_USER_ID else "User")
         db.add(user)
         try:
             await db.flush()
         except IntegrityError:
             await db.rollback()
-            result = await db.execute(select(User).where(User.id == settings.DEFAULT_USER_ID))
+            result = await db.execute(select(User).where(User.id == uid))
             user = result.scalar_one_or_none()
             if not user:
                 raise
@@ -46,48 +48,56 @@ async def _get_portfolio_summary(user_id: str, db: AsyncSession) -> str:
 
 @tool
 async def get_portfolio() -> str:
-    """Get the user's current portfolio (positions with id, symbol, quantity, entry price) and their stated goal. Use when the user asks about their portfolio, holdings, or to analyze their positions."""
+    """Get the user's portfolio: each position's id, symbol (ticker), quantity held, entry price, notes, plus their text goal. Symbols may be crypto (BTC), US equities (AAPL), PSX tickers, etc."""
     from app.db.session import async_session_factory
+
+    uid = get_effective_user_id()
     async with async_session_factory() as session:
-        return await _get_portfolio_summary(settings.DEFAULT_USER_ID, session)
+        return await _get_portfolio_summary(uid, session)
 
 
 @tool
 async def add_position(symbol: str, quantity: float, notes: str | None = None) -> str:
-    """Add a new position to the user's portfolio. Use when the user asks to add a coin (e.g. 'add 2 ETH'). symbol: coin symbol (e.g. BTC, ETH). quantity: amount. notes: optional."""
+    """Add a new holding. symbol: ticker (BTC, ETH, AAPL, PSX symbols, etc.). quantity: units CURRENTLY OWNED only—not a goal multiplier. Use notes for USD cost basis or estimation method (e.g. ~$400 spot estimate)."""
     if quantity <= 0:
         return "Quantity must be positive."
     from app.db.session import async_session_factory
+
+    sym = normalize_trading_symbol(symbol)
+    uid = get_effective_user_id()
     async with async_session_factory() as session:
-        await _ensure_user(session)
+        await _ensure_user(session, uid)
         pos = PortfolioPosition(
-            user_id=settings.DEFAULT_USER_ID,
-            symbol=symbol.upper().strip(),
+            user_id=uid,
+            symbol=sym,
             quantity=quantity,
             entry_price=0.0,
             notes=notes,
         )
         session.add(pos)
         await session.commit()
-        return f"Added {quantity} {symbol.upper()} to portfolio."
+        return f"Added {quantity} {sym} to portfolio."
 
 
 @tool
 async def delete_position(symbol: str) -> str:
-    """Remove a position from the user's portfolio by symbol. Use when the user asks to remove or sell a coin (e.g. 'remove BTC', 'delete my ETH position'). symbol: coin symbol to remove."""
+    """Remove a position by ticker (same symbol format as add_position: BTC, ETH, AAPL, PSX tickers, etc.)."""
     from app.db.session import async_session_factory
+
+    sym = normalize_trading_symbol(symbol)
+    uid = get_effective_user_id()
     async with async_session_factory() as session:
         result = await session.execute(
             select(PortfolioPosition).where(
                 and_(
-                    PortfolioPosition.user_id == settings.DEFAULT_USER_ID,
-                    PortfolioPosition.symbol == symbol.upper().strip(),
+                    PortfolioPosition.user_id == uid,
+                    PortfolioPosition.symbol == sym,
                 )
             )
         )
         pos = result.scalar_one_or_none()
         if not pos:
-            return f"No position found for {symbol}. Say the exact symbol from their portfolio."
+            return f"No position found for {sym}. Say the exact symbol from their portfolio."
         await session.delete(pos)
         await session.commit()
         return f"Removed {pos.symbol} position from portfolio."
@@ -95,17 +105,19 @@ async def delete_position(symbol: str) -> str:
 
 @tool
 async def update_position(position_id: int, quantity: float | None = None, entry_price: float | None = None, notes: str | None = None) -> str:
-    """Update an existing portfolio position by id. Use when the user asks to change quantity or entry price of a position (e.g. 'update my BTC 0.002 to 0.003', 'change position id 2 quantity to 0.005'). position_id: the id from get_portfolio. quantity: new quantity (optional). entry_price: new entry price (optional). notes: new notes (optional). At least one of quantity, entry_price, notes must be provided."""
+    """Update a position by id from get_portfolio. quantity is the new UNITS HELD (not a goal/target multiple). At least one of quantity, entry_price, notes must be set."""
     if quantity is None and entry_price is None and notes is None:
         return "Provide at least one of quantity, entry_price, or notes to update."
     if quantity is not None and quantity <= 0:
         return "Quantity must be positive."
     from app.db.session import async_session_factory
+
+    uid = get_effective_user_id()
     async with async_session_factory() as session:
         result = await session.execute(
             select(PortfolioPosition).where(
                 and_(
-                    PortfolioPosition.user_id == settings.DEFAULT_USER_ID,
+                    PortfolioPosition.user_id == uid,
                     PortfolioPosition.id == position_id,
                 )
             )
@@ -132,10 +144,12 @@ async def update_position(position_id: int, quantity: float | None = None, entry
 
 @tool
 async def set_portfolio_goal(goal: str) -> str:
-    """Update the user's portfolio goal (text description of what they want to achieve). Use when the user states a goal (e.g. 'my goal is long-term growth', 'I want to save for a house')."""
+    """Set the user's investment goal as free text only (e.g. 'double in 6 months', 'reach $800'). Never use this to record how many shares/coins they own—that belongs in add_position/update_position."""
     from app.db.session import async_session_factory
+
+    uid = get_effective_user_id()
     async with async_session_factory() as session:
-        user = await _ensure_user(session)
+        user = await _ensure_user(session, uid)
         user.portfolio_goal = goal.strip() if goal else None
         await session.commit()
         return "Portfolio goal updated."

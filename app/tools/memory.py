@@ -9,8 +9,9 @@ _user_conversation: dict[str, list[dict]] = {}  # user_id -> [{role, content}, .
 
 
 def _get_user_id() -> str:
-    from app.core.config import settings
-    return settings.DEFAULT_USER_ID
+    from app.core.auth_context import get_effective_user_id
+
+    return get_effective_user_id()
 
 
 @tool

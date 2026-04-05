@@ -13,11 +13,12 @@ from app.api import api_router
 from app.db.session import init_db
 from app.jobs import start_scheduler, stop_scheduler
 
-# Structured logging for production-style debugging
+_root_level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
 logging.basicConfig(
-    level=logging.INFO,
+    level=_root_level,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+logging.getLogger("app").setLevel(_root_level)
 logger = logging.getLogger(__name__)
 
 

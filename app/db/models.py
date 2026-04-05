@@ -16,6 +16,7 @@ class User(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     name: Mapped[str] = mapped_column(String(255), default="Demo User")
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    google_sub: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
     portfolio_goal: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

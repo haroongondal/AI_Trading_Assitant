@@ -9,7 +9,7 @@ _search = DuckDuckGoSearchRun()
 
 @tool
 def search_web(query: str) -> str:
-    """Search the web for current information about crypto, forex, or markets. Use when the user needs up-to-date info that might not be in the knowledge base."""
+    """Search the web for current information: crypto, equities (NASDAQ/NYSE), PSX, forex, macro. Use when the user needs up-to-date prices or news not in the knowledge base."""
     try:
         return _search.invoke(query)
     except Exception as e:
