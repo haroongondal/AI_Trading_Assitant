@@ -16,10 +16,10 @@ For the full architecture story, see
 ## Prerequisites (on your laptop)
 
 1. [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
-   installed and configured (same credentials as `backend/deploy/.env`:
+  installed and configured (same credentials as `backend/deploy/.env`:
    `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, optional `AWS_SESSION_TOKEN`).
 2. [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)
-   for the AWS CLI — required to open a shell on the instances (SSH is not
+  for the AWS CLI — required to open a shell on the instances (SSH is not
    opened by the provision scripts).
 
 ---
@@ -187,6 +187,21 @@ a different layout.
 Set `CORS_ORIGINS` and `FRONTEND_URL` to match your Vercel app if you use the
 browser frontend.
 
+**Google OAuth:** `GOOGLE_REDIRECT_URI` must be your **API** callback (e.g.
+`https://api.yourdomain.com/api/auth/google/callback`) and must match Google
+Cloud Console. `**FRONTEND_URL`** is where users are sent **after** a successful
+login (`RedirectResponse` in the API). If `FRONTEND_URL` is still
+`http://localhost:3000`, production users will be redirected there. Set
+`FRONTEND_URL=https://your-frontend-host` (no trailing path required), and use
+`AUTH_COOKIE_SECURE=true` when the site is served over HTTPS.
+
+**CORS:** The SPA calls the API with `credentials: "include"` (see `frontend/lib/api.ts`).
+The API must send `Access-Control-Allow-Origin` for your **frontend origin** (e.g. Vercel).
+You do **not** add `https://accounts.google.com` to CORS — Google sign-in uses full-page
+redirects, not cross-origin `fetch`. The backend appends the origin parsed from
+`FRONTEND_URL` to `CORS_ORIGINS` automatically; you can still set `CORS_ORIGINS` explicitly
+for extra origins (comma-separated, no trailing slash on each origin).
+
 ### 4. Prove the backend can reach Ollama
 
 Still on the **backend** instance:
@@ -199,14 +214,14 @@ You should see JSON listing models. If this times out:
 
 - Confirm both instances are in the **same VPC** (or routable subnets).
 - Confirm `provision_aws_ollama.py` used the correct `backend_security_group_id`
-  (the API instance’s `sg-...`).
+(the API instance’s `sg-...`).
 - Security group on Ollama must allow **TCP 11434** from that backend SG (the
-  script sets this when configured correctly).
+script sets this when configured correctly).
 
 ### 5. Start the API (Uvicorn) — **required for port 8000**
 
 Nginx proxies to `127.0.0.1:8000`, but **nothing listens there until Uvicorn is
-running**. If `curl http://127.0.0.1:8000/health` says _Connection refused_, the
+running**. If `curl http://127.0.0.1:8000/health` says *Connection refused*, the
 app process is not started (or failed on boot).
 
 **Order:** get venv + `.env` right (steps 2–3) → **start Uvicorn** (this step) →
@@ -352,7 +367,7 @@ sudo cp /opt/ai-trading-assistant/backend/deploy/templates/dynu-ddns.service /et
 sudo cp /opt/ai-trading-assistant/backend/deploy/templates/dynu-ddns.timer /etc/systemd/system/dynu-ddns.timer
 ```
 
-**Recommended on EC2:** set both an [API key](https://www.dynu.com/Support/API) and the [IP Update Protocol](https://www.dynu.com/DynamicDNS/IP-Update-Protocol) password. The script tries **`POST /v2/dns/{id}`** first; if that fails (some instances see HTTP **505** from Dynu’s REST edge), it automatically falls back to **`GET /nic/update`**. To use **only** `nic/update` when both are in the file, add **`DYNU_SKIP_REST=1`**.
+**Recommended on EC2:** set both an [API key](https://www.dynu.com/Support/API) and the [IP Update Protocol](https://www.dynu.com/DynamicDNS/IP-Update-Protocol) password. The script tries `**POST /v2/dns/{id}`** first; if that fails (some instances see HTTP **505** from Dynu’s REST edge), it automatically falls back to `**GET /nic/update`**. To use **only** `nic/update` when both are in the file, add `**DYNU_SKIP_REST=1`**.
 
 ```bash
 sudo tee /etc/default/dynu-ddns >/dev/null <<'EOF'
@@ -367,10 +382,10 @@ EOF
 sudo chmod 600 /etc/default/dynu-ddns
 ```
 
-- **`DYNU_NIC_PASSWORD`**: **IP update / DDNS password** for that hostname in the Dynu control panel (plain or MD5/SHA-256 hash per [Dynu’s IP Update Protocol](https://www.dynu.com/DynamicDNS/IP-Update-Protocol)).
-- **`DYNU_HOSTNAME`**: must match the FQDN (no trailing spaces).
+- `**DYNU_NIC_PASSWORD**`: **IP update / DDNS password** for that hostname in the Dynu control panel (plain or MD5/SHA-256 hash per [Dynu’s IP Update Protocol](https://www.dynu.com/DynamicDNS/IP-Update-Protocol)).
+- `**DYNU_HOSTNAME`**: must match the FQDN (no trailing spaces).
 
-**REST only** (API key, no `DYNU_NIC_PASSWORD`) — uses [REST API v2](https://www.dynu.com/Support/API) only; if you hit HTTP 505, add **`DYNU_NIC_PASSWORD`** as above for automatic fallback.
+**REST only** (API key, no `DYNU_NIC_PASSWORD`) — uses [REST API v2](https://www.dynu.com/Support/API) only; if you hit HTTP 505, add `**DYNU_NIC_PASSWORD`** as above for automatic fallback.
 
 **NIC only** (no API key) — `GET https://api.dynu.com/nic/update` with `hostname`, `password`, and `myip`; documented in [IP Update Protocol](https://www.dynu.com/DynamicDNS/IP-Update-Protocol). Example:
 
@@ -399,11 +414,11 @@ Expected log line (REST mode): `dynu v2 update ok: script_rev=... dns_id=... ipv
 
 **If you see `missing required env var: DYNU_API_KEY`:**
 
-- The unit reads **`/etc/default/dynu-ddns`** via `EnvironmentFile`. Each line
-  must be `KEY=value` — **do not** use `export` (systemd does not apply those
-  the same way as a shell).
+- The unit reads `**/etc/default/dynu-ddns`** via `EnvironmentFile`. Each line
+must be `KEY=value` — **do not** use `export` (systemd does not apply those
+the same way as a shell).
 - Replace `YOUR_DYNU_API_KEY` with the real key from Dynu → **API Credentials**;
-  save the file, then:
+save the file, then:
 
 ```bash
 sudo systemctl daemon-reload
@@ -431,14 +446,14 @@ sudo systemctl start dynu-ddns.service
 
 **If you see `curl: (22) ... error: 505`:**
 
-HTTP **505** on **`POST /v2/dns/{id}`** (or **`GET /v2/dns`**) is a known quirk from some EC2 / `curl` / TLS paths toward Dynu’s API ([REST v2](https://www.dynu.com/Support/API)). Mitigations built into the template (check **`script_rev=`** in the log; current is **6**):
+HTTP **505** on `**POST /v2/dns/{id}`** (or `**GET /v2/dns**`) is a known quirk from some EC2 / `curl` / TLS paths toward Dynu’s API ([REST v2](https://www.dynu.com/Support/API)). Mitigations built into the template (check `**script_rev=**` in the log; current is **6**):
 
-1. Deploy the latest `dynu-ddns-update.sh`. It uses **`curl -4`** (IPv4), **HTTP/1.1**, **`--no-alpn`** when available, and **HTTP/1.0** retry when stderr looks like 505.
-2. Set **`DYNU_DNS_ID`** so REST skips the **`GET /v2/dns`** list when that call is the one failing.
-3. Add **`DYNU_NIC_PASSWORD`** (same host as **`DYNU_HOSTNAME`**) alongside **`DYNU_API_KEY`**: the script tries REST first, then **[IP Update Protocol](https://www.dynu.com/DynamicDNS/IP-Update-Protocol)** automatically. Or use **NIC-only** config (no API key), or **`DYNU_SKIP_REST=1`** to never call REST when both credentials are present.
+1. Deploy the latest `dynu-ddns-update.sh`. It uses `**curl -4`** (IPv4), **HTTP/1.1**, `**--no-alpn`** when available, and **HTTP/1.0** retry when stderr looks like 505.
+2. Set `**DYNU_DNS_ID`** so REST skips the `**GET /v2/dns**` list when that call is the one failing.
+3. Add `**DYNU_NIC_PASSWORD**` (same host as `**DYNU_HOSTNAME**`) alongside `**DYNU_API_KEY**`: the script tries REST first, then **[IP Update Protocol](https://www.dynu.com/DynamicDNS/IP-Update-Protocol)** automatically. Or use **NIC-only** config (no API key), or `**DYNU_SKIP_REST=1`** to never call REST when both credentials are present.
 
 **Timer vs one-shot service:** `systemctl stop dynu-ddns.service` does not stop
-**`dynu-ddns.timer`**. To pause scheduled runs while testing, use
+`**dynu-ddns.timer`**. To pause scheduled runs while testing, use
 `sudo systemctl stop dynu-ddns.timer` (and `start` again when done).
 
 ---
@@ -466,11 +481,13 @@ curl -sS https://YOUR_API_HOST/api/health
 
 ## Quick reference: networking
 
+
 | From         | To              | Port   | Purpose                          |
 | ------------ | --------------- | ------ | -------------------------------- |
 | Internet     | API instance    | 80/443 | Nginx → FastAPI                  |
 | API instance | Ollama instance | 11434  | Ollama HTTP API                  |
 | Internet     | Ollama instance | 11434  | Should stay closed in production |
+
 
 The provision script is meant to allow **11434 only from the backend security
 group** (not the world).
@@ -491,3 +508,4 @@ sudo tail -n 50 /var/log/nginx/error.log
 ```bash
 sudo journalctl -u ollama -n 100 --no-pager
 ```
+

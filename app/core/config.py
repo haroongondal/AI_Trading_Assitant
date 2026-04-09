@@ -2,7 +2,9 @@
 Configuration loaded from environment variables.
 JS parallel: like reading process.env in Node; pydantic-settings validates and types them.
 """
-from pydantic import field_validator
+from urllib.parse import urlparse
+
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -40,7 +42,9 @@ class Settings(BaseSettings):
     API_V1_PREFIX: str = "/api"
     # Root log level: DEBUG shows more detail; chat timing uses INFO on app.* loggers
     LOG_LEVEL: str = "INFO"
-    # Comma-separated in .env (e.g. CORS_ORIGINS=http://localhost:3000,http://localhost:3001) or leave unset for defaults
+    # Comma-separated in .env (e.g. CORS_ORIGINS=http://localhost:3000,http://localhost:3001) or leave unset for defaults.
+    # The origin derived from FRONTEND_URL is always appended if missing (browser fetch + credentials from the SPA).
+    # You do NOT add accounts.google.com here — OAuth uses top-level redirects, not CORS.
     CORS_ORIGINS: list[str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
@@ -144,6 +148,22 @@ class Settings(BaseSettings):
     EMAIL_SMTP_PASSWORD: str = ""  # For Gmail use an App Password, not account password
     EMAIL_FROM: str = ""  # Optional; defaults to EMAIL_SMTP_USERNAME
     EMAIL_DEFAULT_TO: str = ""  # Optional fallback when user.email is missing
+
+    @model_validator(mode="after")
+    def merge_frontend_origin_into_cors(self) -> "Settings":
+        """Allow the SPA at FRONTEND_URL to call this API with credentials (fixes prod CORS after OAuth)."""
+        fe = (self.FRONTEND_URL or "").strip()
+        if not fe:
+            return self
+        if "://" not in fe:
+            fe = f"https://{fe}"
+        parsed = urlparse(fe)
+        if not parsed.scheme or not parsed.netloc:
+            return self
+        origin = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+        if origin in self.CORS_ORIGINS:
+            return self
+        return self.model_copy(update={"CORS_ORIGINS": [*self.CORS_ORIGINS, origin]})
 
 
 settings = Settings()
