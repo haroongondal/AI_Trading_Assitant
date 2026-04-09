@@ -78,11 +78,23 @@ resolve_dns_id() {
 import json, sys
 want = sys.argv[1].strip().lower()
 data = json.load(sys.stdin)
-if not isinstance(data, list):
+# Dynu v2 may return a bare list of domains or {\"statusCode\": 200, \"domains\": [...]}.
+if isinstance(data, dict):
+    sc = data.get('statusCode')
+    if sc is not None and int(sc) != 200:
+        sys.stderr.write(f'error: GET /dns statusCode={sc!r}\n')
+        sys.exit(1)
+    rows = data.get('domains') or data.get('Domains') or []
+elif isinstance(data, list):
+    rows = data
+else:
     raw = json.dumps(data)[:200]
-    sys.stderr.write(f'error: unexpected /dns response (not a list): {raw!r}\n')
+    sys.stderr.write(f'error: unexpected /dns JSON shape: {raw!r}\n')
     sys.exit(1)
-for row in data:
+if not isinstance(rows, list):
+    sys.stderr.write('error: /dns domains field is not a list\n')
+    sys.exit(1)
+for row in rows:
     name = (row.get('name') or row.get('Name') or '').strip().lower()
     if name == want:
         rid = row.get('id') if 'id' in row else row.get('Id')

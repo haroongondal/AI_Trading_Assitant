@@ -356,6 +356,10 @@ sudo grep -E '^DYNU_API_KEY=' /etc/default/dynu-ddns
 sudo systemctl show dynu-ddns.service -p EnvironmentFiles --no-pager
 ```
 
+**If you see `unexpected /dns response (not a list)`:**
+
+Dynu’s API returns JSON like `{"statusCode": 200, "domains": [...]}` rather than a bare array. Copy the latest `dynu-ddns-update.sh` from this repo to `/usr/local/bin/` (the template parses both shapes), then `sudo systemctl start dynu-ddns.service` again.
+
 ---
 
 ## End-to-end checks
