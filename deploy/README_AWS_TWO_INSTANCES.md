@@ -352,15 +352,14 @@ sudo cp /opt/ai-trading-assistant/backend/deploy/templates/dynu-ddns.service /et
 sudo cp /opt/ai-trading-assistant/backend/deploy/templates/dynu-ddns.timer /etc/systemd/system/dynu-ddns.timer
 ```
 
-Create Dynu config (uses [REST API v2](https://www.dynu.com/support/api) with an
-**API key** from Dynu Control Panel → **API Credentials**):
+**Recommended on EC2:** set both an [API key](https://www.dynu.com/Support/API) and the [IP Update Protocol](https://www.dynu.com/DynamicDNS/IP-Update-Protocol) password. The script tries **`POST /v2/dns/{id}`** first; if that fails (some instances see HTTP **505** from Dynu’s REST edge), it automatically falls back to **`GET /nic/update`**. To use **only** `nic/update` when both are in the file, add **`DYNU_SKIP_REST=1`**.
 
 ```bash
 sudo tee /etc/default/dynu-ddns >/dev/null <<'EOF'
 DYNU_API_KEY=YOUR_DYNU_API_KEY
-# Match the DNS hostname name exactly as shown under Dynamic DNS in Dynu (or set DYNU_DNS_ID instead).
 DYNU_HOSTNAME=api-example.dynu.net
-# Optional: numeric id from Dynu; if set, DYNU_HOSTNAME lookup is skipped.
+DYNU_NIC_PASSWORD=your_ip_update_password_or_md5_hash
+# Optional: numeric id from Dynu; if set, DYNU_HOSTNAME lookup is skipped for REST.
 # DYNU_DNS_ID=12345678
 # Optional: "imds" (default, AWS metadata) or "external" (ipify).
 DYNU_IP_SOURCE=imds
@@ -368,14 +367,12 @@ EOF
 sudo chmod 600 /etc/default/dynu-ddns
 ```
 
-**Alternative — [IP Update Protocol](https://www.dynu.com/DynamicDNS/IP-Update-Protocol) (GET only):**
+- **`DYNU_NIC_PASSWORD`**: **IP update / DDNS password** for that hostname in the Dynu control panel (plain or MD5/SHA-256 hash per [Dynu’s IP Update Protocol](https://www.dynu.com/DynamicDNS/IP-Update-Protocol)).
+- **`DYNU_HOSTNAME`**: must match the FQDN (no trailing spaces).
 
-Dynu documents this as the long-standing way to push a new IPv4: **`GET https://api.dynu.com/nic/update`** with query parameters `hostname`, `password`, and optionally `myip`. It avoids REST **`POST /v2/dns/{id}`**, which some environments see as HTTP **505**. The template script supports it when **`DYNU_NIC_PASSWORD`** is set (then **`DYNU_API_KEY` is not required**).
+**REST only** (API key, no `DYNU_NIC_PASSWORD`) — uses [REST API v2](https://www.dynu.com/Support/API) only; if you hit HTTP 505, add **`DYNU_NIC_PASSWORD`** as above for automatic fallback.
 
-- **`DYNU_NIC_PASSWORD`**: the **IP update / DDNS password** for that hostname in the Dynu control panel (you may use the plain password or an MD5/SHA-256 hash of it, per [Dynu’s IP Update Protocol](https://www.dynu.com/DynamicDNS/IP-Update-Protocol)).
-- **`DYNU_HOSTNAME`**: must match the FQDN (no trailing spaces on the line in `/etc/default/dynu-ddns`).
-
-Example:
+**NIC only** (no API key) — `GET https://api.dynu.com/nic/update` with `hostname`, `password`, and `myip`; documented in [IP Update Protocol](https://www.dynu.com/DynamicDNS/IP-Update-Protocol). Example:
 
 ```bash
 sudo tee /etc/default/dynu-ddns >/dev/null <<'EOF'
@@ -386,7 +383,7 @@ EOF
 sudo chmod 600 /etc/default/dynu-ddns
 ```
 
-Success log line: `dynu nic/update ok: script_rev=... hostname=... ipv4=... response=good ...` (or `nochg` if the IP was already correct).
+Success log lines: `dynu v2 update ok: script_rev=...` (REST), or `dynu nic/update ok: ... response=good ...` / `nochg` (IP update protocol). After a REST failure with fallback you may see one stderr line: `dynu: REST update failed; trying IP Update Protocol (nic/update).` before the success line.
 
 Enable and test:
 
@@ -434,9 +431,11 @@ sudo systemctl start dynu-ddns.service
 
 **If you see `curl: (22) ... error: 505`:**
 
-1. Deploy the latest `dynu-ddns-update.sh` from this repo (successful runs log **`script_rev=`**; current template is rev **5**). It uses **HTTP/1.1**, **`--no-alpn`** when `curl` supports it, and **retries with HTTP/1.0** when the error looks like HTTP 505.
-2. Set **`DYNU_DNS_ID`** so the job skips **`GET /v2/dns`** (list) and only runs **`POST /v2/dns/{id}`** (your manual test showed **`GET /v2/dns/{id}`** can work while list/POST misbehave).
-3. If POST still fails, switch to **[IP Update Protocol](https://www.dynu.com/DynamicDNS/IP-Update-Protocol)**: set **`DYNU_NIC_PASSWORD`** + **`DYNU_HOSTNAME`** and remove reliance on REST (see example above).
+HTTP **505** on **`POST /v2/dns/{id}`** (or **`GET /v2/dns`**) is a known quirk from some EC2 / `curl` / TLS paths toward Dynu’s API ([REST v2](https://www.dynu.com/Support/API)). Mitigations built into the template (check **`script_rev=`** in the log; current is **6**):
+
+1. Deploy the latest `dynu-ddns-update.sh`. It uses **`curl -4`** (IPv4), **HTTP/1.1**, **`--no-alpn`** when available, and **HTTP/1.0** retry when stderr looks like 505.
+2. Set **`DYNU_DNS_ID`** so REST skips the **`GET /v2/dns`** list when that call is the one failing.
+3. Add **`DYNU_NIC_PASSWORD`** (same host as **`DYNU_HOSTNAME`**) alongside **`DYNU_API_KEY`**: the script tries REST first, then **[IP Update Protocol](https://www.dynu.com/DynamicDNS/IP-Update-Protocol)** automatically. Or use **NIC-only** config (no API key), or **`DYNU_SKIP_REST=1`** to never call REST when both credentials are present.
 
 **Timer vs one-shot service:** `systemctl stop dynu-ddns.service` does not stop
 **`dynu-ddns.timer`**. To pause scheduled runs while testing, use
