@@ -8,6 +8,9 @@
 #   DYNU_HOSTNAME      required if DYNU_DNS_ID unset; must match DNS service name in Dynu
 #   DYNU_IP_SOURCE     optional: imds (default) | external
 #   DYNU_API_BASE      optional; default https://api.dynu.com/v2
+#
+# Bump when behavior changes (check journal for "script_rev=" after a successful run).
+SCRIPT_REV=4
 
 set -euo pipefail
 
@@ -44,9 +47,37 @@ require "DYNU_API_KEY"
 
 API_BASE="${DYNU_API_BASE:-https://api.dynu.com/v2}"
 API_BASE="${API_BASE%/}"
+if [[ "$API_BASE" != https://* ]]; then
+  echo "error: DYNU_API_BASE must start with https:// (got: ${API_BASE})" >&2
+  exit 1
+fi
 
-# Force HTTP/1.1 for Dynu API — some paths return "505 HTTP Version Not Supported" with HTTP/2.
-DYNU_CURL=(curl -fsS --http1.1)
+# Optional: disable TLS ALPN when curl supports it (helps avoid HTTP 505 from some edges).
+DYNU_CURL_NO_ALPN=()
+if curl --help all 2>/dev/null | grep -qF -- '--no-alpn'; then
+  DYNU_CURL_NO_ALPN=(--no-alpn)
+fi
+
+# Dynu API via curl: prefer HTTP/1.1; retry with HTTP/1.0 if server returns 505.
+_run_dynu_curl() {
+  local tmp err
+  tmp="$(mktemp)"
+  err="$(mktemp)"
+  cleanup() { rm -f "$tmp" "$err"; }
+  trap cleanup RETURN
+  if curl -fsS --http1.1 "${DYNU_CURL_NO_ALPN[@]}" "$@" >"$tmp" 2>"$err"; then
+    cat "$tmp"
+    return 0
+  fi
+  if grep -qE '505|HTTP Version' "$err" 2>/dev/null; then
+    if curl -fsS --http1.0 "${DYNU_CURL_NO_ALPN[@]}" "$@" >"$tmp" 2>"$err"; then
+      cat "$tmp"
+      return 0
+    fi
+  fi
+  cat "$err" >&2
+  return 1
+}
 
 IP_SOURCE="${DYNU_IP_SOURCE:-imds}"
 PUBLIC_IP=""
@@ -73,7 +104,7 @@ resolve_dns_id() {
   require "DYNU_HOSTNAME"
   local raw
   raw="$(
-    "${DYNU_CURL[@]}" "${API_BASE}/dns" \
+    _run_dynu_curl "${API_BASE}/dns" \
       -H "accept: application/json" \
       -H "API-Key: ${DYNU_API_KEY}"
   )"
@@ -118,12 +149,12 @@ export PUBLIC_IP
 BODY="$(python3 -c "import json, os; print(json.dumps({'ipv4Address': os.environ['PUBLIC_IP'], 'ipv4': True}))")"
 
 RESP="$(
-  "${DYNU_CURL[@]}" -X POST "${API_BASE}/dns/${DNS_ID}" \
+  _run_dynu_curl -X POST "${API_BASE}/dns/${DNS_ID}" \
     -H "accept: application/json" \
     -H "Content-Type: application/json" \
     -H "API-Key: ${DYNU_API_KEY}" \
     -d "$BODY"
 )"
 
-echo "dynu v2 update ok: dns_id=${DNS_ID} ipv4=${PUBLIC_IP}"
+echo "dynu v2 update ok: script_rev=${SCRIPT_REV} dns_id=${DNS_ID} ipv4=${PUBLIC_IP}"
 echo "$RESP" | python3 -m json.tool 2>/dev/null || echo "$RESP"

@@ -368,7 +368,11 @@ sudo systemctl start dynu-ddns.service
 
 **If you see `curl: (22) ... error: 505`:**
 
-The template uses `curl --http1.1` for Dynu API calls to avoid rare “HTTP Version Not Supported” responses. Deploy the latest script as above. You can also set **`DYNU_DNS_ID`** (numeric id from Dynu for your hostname) in `/etc/default/dynu-ddns` so the job skips `GET /dns` and only runs `POST .../dns/{id}`.
+Deploy the latest `dynu-ddns-update.sh` from this repo. It uses **HTTP/1.1**, **`--no-alpn`** when your `curl` supports it, and **retries with HTTP/1.0** if the error looks like HTTP 505. Successful runs log `script_rev=` (current template uses rev **4**).
+
+Set **`DYNU_DNS_ID`** in `/etc/default/dynu-ddns` so the job skips `GET /dns` and only runs `POST .../dns/{id}` (fewer moving parts).
+
+**Timer vs one-shot service:** `systemctl stop dynu-ddns.service` does not stop **`dynu-ddns.timer`**. To pause scheduled runs while testing, use `sudo systemctl stop dynu-ddns.timer` (and `start` again when done).
 
 ---
 
