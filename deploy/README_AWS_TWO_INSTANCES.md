@@ -358,7 +358,17 @@ sudo systemctl show dynu-ddns.service -p EnvironmentFiles --no-pager
 
 **If you see `unexpected /dns response (not a list)`:**
 
-Dynu’s API returns JSON like `{"statusCode": 200, "domains": [...]}` rather than a bare array. Copy the latest `dynu-ddns-update.sh` from this repo to `/usr/local/bin/` (the template parses both shapes), then `sudo systemctl start dynu-ddns.service` again.
+Dynu’s API returns JSON like `{"statusCode": 200, "domains": [...]}` rather than a bare array. Your server is still running an **old** copy of the script. Copy the latest template to the instance and retry:
+
+```bash
+sudo cp /opt/ai-trading-assistant/backend/deploy/templates/dynu-ddns-update.sh /usr/local/bin/dynu-ddns-update.sh
+sudo chmod +x /usr/local/bin/dynu-ddns-update.sh
+sudo systemctl start dynu-ddns.service
+```
+
+**If you see `curl: (22) ... error: 505`:**
+
+The template uses `curl --http1.1` for Dynu API calls to avoid rare “HTTP Version Not Supported” responses. Deploy the latest script as above. You can also set **`DYNU_DNS_ID`** (numeric id from Dynu for your hostname) in `/etc/default/dynu-ddns` so the job skips `GET /dns` and only runs `POST .../dns/{id}`.
 
 ---
 

@@ -45,6 +45,9 @@ require "DYNU_API_KEY"
 API_BASE="${DYNU_API_BASE:-https://api.dynu.com/v2}"
 API_BASE="${API_BASE%/}"
 
+# Force HTTP/1.1 for Dynu API — some paths return "505 HTTP Version Not Supported" with HTTP/2.
+DYNU_CURL=(curl -fsS --http1.1)
+
 IP_SOURCE="${DYNU_IP_SOURCE:-imds}"
 PUBLIC_IP=""
 
@@ -70,7 +73,7 @@ resolve_dns_id() {
   require "DYNU_HOSTNAME"
   local raw
   raw="$(
-    curl -fsS "${API_BASE}/dns" \
+    "${DYNU_CURL[@]}" "${API_BASE}/dns" \
       -H "accept: application/json" \
       -H "API-Key: ${DYNU_API_KEY}"
   )"
@@ -115,7 +118,7 @@ export PUBLIC_IP
 BODY="$(python3 -c "import json, os; print(json.dumps({'ipv4Address': os.environ['PUBLIC_IP'], 'ipv4': True}))")"
 
 RESP="$(
-  curl -fsS -X POST "${API_BASE}/dns/${DNS_ID}" \
+  "${DYNU_CURL[@]}" -X POST "${API_BASE}/dns/${DNS_ID}" \
     -H "accept: application/json" \
     -H "Content-Type: application/json" \
     -H "API-Key: ${DYNU_API_KEY}" \
