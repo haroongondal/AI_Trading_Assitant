@@ -1,0 +1,24 @@
+{
+  "compartment_id": "ocid1.compartment.oc1..aaaaaaaawrcttlyni4iz5bfyjza6g4dbnp37ezm7eifh6aq4bsm4frpy35hq",
+  "vcn_cidr_block": "10.80.0.0/16",
+  "subnet_cidr_block": "10.80.0.0/24",
+  "vcn_name": "ai-trading-ollama-vcn",
+  "internet_gateway_name": "ai-trading-ollama-igw",
+  "route_table_name": "ai-trading-ollama-rt",
+  "security_list_name": "ai-trading-ollama-sl",
+  "subnet_name": "ai-trading-ollama-subnet",
+  "instance_name": "ai-trading-ollama",
+  "availability_domain": "",
+  "shape": "VM.Standard.A1.Flex",
+  "ocpus": 1,
+  "memory_gb": 6,
+  "boot_volume_gb": 80,
+  "image_operating_system": "Canonical Ubuntu",
+  "image_operating_system_version": "24.04",
+  "ssh_public_key_path": "~/.ssh/github_ed25519_second.pub",
+  "user_data_path": "../templates/oci-cloud-init.sh",
+  "tags": {
+    "Project": "ai-trading-assistant",
+    "ManagedBy": "backend-deploy-script"
+  }
+}

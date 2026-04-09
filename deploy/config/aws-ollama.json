@@ -1,0 +1,19 @@
+{
+  "region": "us-east-1",
+  "subnet_id": "subnet-0a79fc82bed6348a7",
+  "instance_name": "ai-trading-ollama",
+  "instance_type": "t3.micro",
+  "architecture": "amd64",
+  "root_volume_gb": 50,
+  "associate_public_ip": true,
+  "iam_role_name": "ai-trading-ollama-ec2-role",
+  "instance_profile_name": "ai-trading-ollama-instance-profile",
+  "security_group_name": "ai-trading-ollama-sg",
+  "backend_security_group_id": "sg-0c74f1b4075a83553",
+  "ollama_ingress_cidr": "",
+  "user_data_path": "../templates/aws-ollama-user-data.sh",
+  "tags": {
+    "Project": "ai-trading-assistant",
+    "ManagedBy": "backend-deploy-script"
+  }
+}

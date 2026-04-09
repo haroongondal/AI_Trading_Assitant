@@ -1,0 +1,9 @@
+[Unit]
+Description=Update Dynu DDNS A record for backend host
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/dynu-ddns
+ExecStart=/usr/local/bin/dynu-ddns-update.sh

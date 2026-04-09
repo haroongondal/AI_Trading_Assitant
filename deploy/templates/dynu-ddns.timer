@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Dynu DDNS updater every 5 minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+Unit=dynu-ddns.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target
