@@ -146,6 +146,12 @@ def sanitize_assistant_visible_text(text: str, *, trim: bool = True) -> str:
     s = strip_known_tool_json_blobs(s)
     s = strip_generic_tool_json_blobs(s)
     s = re.sub(r"<\|[^>]+\|>", "", s)
+    # Gracefully degrade LaTeX-style fragments for frontends without math rendering.
+    s = re.sub(r"\\\[(.*?)\\\]", r"\1", s, flags=re.DOTALL)
+    s = re.sub(r"\\\((.*?)\\\)", r"\1", s, flags=re.DOTALL)
+    s = re.sub(r"\\text\{([^{}]*)\}", r"\1", s)
+    s = re.sub(r"\$\$(.*?)\$\$", r"\1", s, flags=re.DOTALL)
+    s = re.sub(r"\$(.*?)\$", r"\1", s, flags=re.DOTALL)
     return s.strip() if trim else s
 
 

@@ -38,6 +38,8 @@ Tools:
 
 CRITICAL rules for portfolio tools:
 - add_position quantity is ONLY what the user CURRENTLY OWNS (coins, shares, lots)—never a target multiple. If they say "double in a year", that is a GOAL: call set_portfolio_goal with that text and add_position with their ACTUAL holding (e.g. 0.01 BTC means quantity=0.01, NOT 0.02).
+- If the user provides entry/buy price (e.g. "bought at 2600"), pass it as add_position.entry_price or update_position.entry_price.
+- If the user provides rationale/context (e.g. "long-term hold", "DCA"), preserve that in notes (add_position.notes or update_position.notes).
 - set_portfolio_goal is for targets and time horizons only—not for duplicating quantity.
 - When the user states both a holding and a goal in one message, call the appropriate tools in the same turn (e.g. add_position + set_portfolio_goal). Do not ask for confirmation if quantities are explicit.
 - If they give only a USD value (e.g. "$400 of BTC") without units, use search_web to approximate spot price, compute a reasonable quantity for add_position, put the USD basis in notes, and state briefly that it is an estimate—or ask one short clarifying question if you cannot estimate.
@@ -47,7 +49,11 @@ Goals and “how do I make $X” questions: Do NOT refuse or say you cannot help
 
 Humor / roast requests: If the user explicitly asks to roast, mock, or humorously critique their OWN portfolio, comply in a playful, non-hateful way. Keep it witty but constructive: include concrete portfolio observations (concentration, risk, diversification, time horizon mismatch, cost basis realism), avoid slurs/abuse, and end with practical improvement suggestions.
 
-Be concise and professional. Never output raw tool syntax, JSON tool calls, or markup like <|...|> to the user—only natural language."""
+Be concise and professional. Never output raw tool syntax, JSON tool calls, or markup like <|...|> to the user—only natural language.
+
+Formatting rules:
+- Do not output LaTeX/TeX math delimiters (\\[...\\], \\(...\\), $$...$$, or $...$). Use plain text math only.
+- Keep equations readable in normal text, e.g. "Price per ETH = 415 / 0.0509 ~= 8126.73 USD"."""
 
 TOOLS: list[BaseTool] = [
     query_rag,
@@ -146,6 +152,25 @@ def _should_prefetch_web(message: str) -> bool:
     return any(k in text for k in keywords)
 
 
+def _is_meta_agent_behavior_question(message: str) -> bool:
+    """Detect prompts about the assistant's own prior behavior; these should avoid web search."""
+    text = (message or "").lower().strip()
+    if not text:
+        return False
+    return (
+        ("why" in text or "how" in text)
+        and ("you " in text or "assistant" in text or "agent" in text)
+        and (
+            "added" in text
+            or "update" in text
+            or "portfolio" in text
+            or "wrong" in text
+            or "did that" in text
+            or "did this" in text
+        )
+    )
+
+
 def _looks_like_web_deferral(text: str) -> bool:
     """Detect assistant replies that defer instead of calling search_web."""
     t = (text or "").lower()
@@ -240,7 +265,8 @@ async def stream_agent_response(
                 )
             )
         )
-    if _should_prefetch_web(message):
+    should_prefetch_web = _should_prefetch_web(message) and not _is_meta_agent_behavior_question(message)
+    if should_prefetch_web:
         yield {"event": "status", "data": TOOL_STATUS_LABELS["search_web"]}
         await asyncio.sleep(0)
         web_snapshot = await _run_tool("search_web", {"query": message})
@@ -255,6 +281,15 @@ async def stream_agent_response(
         )
     # Keep the current user turn as the last message; some Ollama models may emit empty output
     # if a system message is appended after the user's input.
+    if _is_meta_agent_behavior_question(message):
+        messages.append(
+            SystemMessage(
+                content=(
+                    "The user is asking about this assistant's previous behavior/actions. "
+                    "Do not call search_web for this. Explain likely internal/tooling reason and provide a concrete correction path."
+                )
+            )
+        )
     normalized_message = _normalize_user_prompt_for_model(message)
     messages.append(HumanMessage(content=normalized_message))
     max_turns = max(1, settings.AGENT_MAX_TURNS)

@@ -57,10 +57,17 @@ async def get_portfolio() -> str:
 
 
 @tool
-async def add_position(symbol: str, quantity: float, notes: str | None = None) -> str:
-    """Add a new holding. symbol: ticker (BTC, ETH, AAPL, PSX symbols, etc.). quantity: units CURRENTLY OWNED only—not a goal multiplier. Use notes for USD cost basis or estimation method (e.g. ~$400 spot estimate)."""
+async def add_position(
+    symbol: str,
+    quantity: float,
+    entry_price: float | None = None,
+    notes: str | None = None,
+) -> str:
+    """Add a new holding. symbol: ticker (BTC, ETH, AAPL, PSX symbols, etc.). quantity: units CURRENTLY OWNED only—not a goal multiplier. entry_price is optional average buy price per unit. Use notes for USD cost basis or estimation method (e.g. ~$400 spot estimate)."""
     if quantity <= 0:
         return "Quantity must be positive."
+    if entry_price is not None and entry_price <= 0:
+        return "Entry price must be positive when provided."
     from app.db.session import async_session_factory
 
     sym = normalize_trading_symbol(symbol)
@@ -71,11 +78,13 @@ async def add_position(symbol: str, quantity: float, notes: str | None = None) -
             user_id=uid,
             symbol=sym,
             quantity=quantity,
-            entry_price=0.0,
+            entry_price=entry_price if entry_price is not None else 0.0,
             notes=notes,
         )
         session.add(pos)
         await session.commit()
+        if entry_price is not None:
+            return f"Added {quantity} {sym} to portfolio with entry_price={entry_price}."
         return f"Added {quantity} {sym} to portfolio."
 
 
@@ -110,6 +119,8 @@ async def update_position(position_id: int, quantity: float | None = None, entry
         return "Provide at least one of quantity, entry_price, or notes to update."
     if quantity is not None and quantity <= 0:
         return "Quantity must be positive."
+    if entry_price is not None and entry_price <= 0:
+        return "Entry price must be positive."
     from app.db.session import async_session_factory
 
     uid = get_effective_user_id()

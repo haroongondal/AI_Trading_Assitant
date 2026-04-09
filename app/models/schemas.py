@@ -22,6 +22,12 @@ class PortfolioPositionCreate(BaseModel):
     notes: str | None = None
 
 
+class PortfolioPositionUpdate(BaseModel):
+    quantity: float | None = Field(default=None, gt=0)
+    entry_price: float | None = Field(default=None, gt=0)
+    notes: str | None = None
+
+
 class PortfolioGoalUpdate(BaseModel):
     goal: str | None = None
 

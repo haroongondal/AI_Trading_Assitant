@@ -5,6 +5,7 @@ import hashlib
 import logging
 import secrets
 from urllib.parse import urlencode
+from urllib.parse import urlparse
 
 import httpx
 import jwt
@@ -69,32 +70,49 @@ def _create_jwt(user_id: str) -> str:
     )
 
 
-def _set_auth_cookie(response: RedirectResponse | JSONResponse, jwt_value: str) -> None:
+def _cookie_policy_for_request(request: Request) -> tuple[str, bool]:
+    """
+    Derive cookie SameSite/Secure policy.
+    For cross-site frontend<->backend setups, browsers require SameSite=None + Secure.
+    """
+    configured = (settings.AUTH_COOKIE_SAMESITE or "lax").strip().lower()
+    secure = bool(settings.AUTH_COOKIE_SECURE)
+    frontend_host = (urlparse(settings.FRONTEND_URL).hostname or "").lower()
+    backend_host = (request.url.hostname or "").lower()
+    cross_site = bool(frontend_host and backend_host and frontend_host != backend_host)
+    if configured == "none" or cross_site:
+        return "none", True
+    return configured, secure
+
+
+def _set_auth_cookie(response: RedirectResponse | JSONResponse, jwt_value: str, request: Request) -> None:
+    same_site, secure = _cookie_policy_for_request(request)
     response.set_cookie(
         key=settings.AUTH_ACCESS_COOKIE_NAME,
         value=jwt_value,
         httponly=True,
         max_age=settings.AUTH_JWT_EXPIRE_DAYS * 86400,
-        samesite=settings.AUTH_COOKIE_SAMESITE,  # type: ignore[arg-type]
+        samesite=same_site,  # type: ignore[arg-type]
         path=settings.AUTH_COOKIE_PATH,
-        secure=settings.AUTH_COOKIE_SECURE,
+        secure=secure,
     )
 
 
-def _set_oauth_state_cookie(response: RedirectResponse, state: str) -> None:
+def _set_oauth_state_cookie(response: RedirectResponse, state: str, request: Request) -> None:
+    same_site, secure = _cookie_policy_for_request(request)
     response.set_cookie(
         key=settings.OAUTH_STATE_COOKIE_NAME,
         value=state,
         httponly=True,
         max_age=settings.OAUTH_STATE_COOKIE_MAX_AGE,
-        samesite=settings.AUTH_COOKIE_SAMESITE,  # type: ignore[arg-type]
+        samesite=same_site,  # type: ignore[arg-type]
         path=settings.AUTH_COOKIE_PATH,
-        secure=settings.AUTH_COOKIE_SECURE,
+        secure=secure,
     )
 
 
 @router.get("/google/login")
-async def google_login():
+async def google_login(request: Request):
     if not _oauth_ready():
         raise HTTPException(
             status_code=503,
@@ -112,7 +130,7 @@ async def google_login():
     }
     url = f"{settings.GOOGLE_OAUTH_AUTHORIZATION_URL.strip()}?{urlencode(params)}"
     redirect = RedirectResponse(url=url, status_code=302)
-    _set_oauth_state_cookie(redirect, state)
+    _set_oauth_state_cookie(redirect, state, request)
     return redirect
 
 
@@ -211,7 +229,7 @@ async def google_callback(
     jwt_str = _create_jwt(final_id)
     redirect = RedirectResponse(url=settings.FRONTEND_URL.rstrip("/") + "/", status_code=302)
     redirect.delete_cookie(settings.OAUTH_STATE_COOKIE_NAME, path=settings.AUTH_COOKIE_PATH)
-    _set_auth_cookie(redirect, jwt_str)
+    _set_auth_cookie(redirect, jwt_str, request)
     return redirect
 
 
