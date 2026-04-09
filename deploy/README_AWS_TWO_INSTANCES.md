@@ -5,22 +5,30 @@ This runbook assumes you already ran:
 - `provision_aws_backend.py` → API host (FastAPI)
 - `provision_aws_ollama.py` → Ollama host
 
-Both instances use **IAM roles with `AmazonSSMManagedInstanceCore`** and **no inbound SSH** by default. Connect with **AWS Systems Manager Session Manager**.
+Both instances use **IAM roles with `AmazonSSMManagedInstanceCore`** and **no
+inbound SSH** by default. Connect with **AWS Systems Manager Session Manager**.
 
-For the full architecture story, see [../docs/AWS_ZERO_COST_DEPLOYMENT.md](../docs/AWS_ZERO_COST_DEPLOYMENT.md).
+For the full architecture story, see
+[../docs/AWS_ZERO_COST_DEPLOYMENT.md](../docs/AWS_ZERO_COST_DEPLOYMENT.md).
 
 ---
 
 ## Prerequisites (on your laptop)
 
-1. [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) installed and configured (same credentials as `backend/deploy/.env`: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, optional `AWS_SESSION_TOKEN`).
-2. [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html) for the AWS CLI — required to open a shell on the instances (SSH is not opened by the provision scripts).
+1. [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
+   installed and configured (same credentials as `backend/deploy/.env`:
+   `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, optional `AWS_SESSION_TOKEN`).
+2. [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)
+   for the AWS CLI — required to open a shell on the instances (SSH is not
+   opened by the provision scripts).
 
 ---
 
 ## AWS CLI automation (run on your computer)
 
-From `backend/deploy/`, the script reads `config/aws-backend.json` and `config/aws-ollama.json`, loads `.env` if present, and runs `aws` commands for you.
+From `backend/deploy/`, the script reads `config/aws-backend.json` and
+`config/aws-ollama.json`, loads `.env` if present, and runs `aws` commands for
+you.
 
 ```bash
 cd backend/deploy
@@ -37,9 +45,13 @@ chmod +x scripts/ssm_session.sh   # once
 ./scripts/ssm_session.sh i-0123456789abcdef0
 ```
 
-**Manual step:** run `./scripts/ssm_session.sh <instance-id>` (get IDs from `./scripts/aws_tasks.sh status`) or copy the `aws ssm start-session ...` lines from `./scripts/aws_tasks.sh ssm`. Use two terminal tabs for backend and Ollama. Everything below this section runs **inside** those sessions on the instances.
+**Manual step:** run `./scripts/ssm_session.sh <instance-id>` (get IDs from
+`./scripts/aws_tasks.sh status`) or copy the `aws ssm start-session ...` lines
+from `./scripts/aws_tasks.sh ssm`. Use two terminal tabs for backend and Ollama.
+Everything below this section runs **inside** those sessions on the instances.
 
-If `start-session` fails, fix **SSM** first (instance running, IAM role with `AmazonSSMManagedInstanceCore`, endpoint reachability).
+If `start-session` fails, fix **SSM** first (instance running, IAM role with
+`AmazonSSMManagedInstanceCore`, endpoint reachability).
 
 ---
 
@@ -49,7 +61,9 @@ Run these **on the Ollama instance** (inside the SSM session).
 
 ### 1. Install or repair Ollama (systemd)
 
-If `systemctl start ollama` says **Unit ollama.service not found**, the Ollama Linux installer never completed on this VM (common if user-data failed or you created the instance without it). On Ubuntu/Debian, run:
+If `systemctl start ollama` says **Unit ollama.service not found**, the Ollama
+Linux installer never completed on this VM (common if user-data failed or you
+created the instance without it). On Ubuntu/Debian, run:
 
 ```bash
 curl -fsSL https://ollama.com/install.sh | sudo sh
@@ -67,7 +81,9 @@ curl -sS http://127.0.0.1:11434/api/tags | head
 
 ### 2. Expose Ollama to backend instance (VPC-only)
 
-By default, Ollama can bind to loopback only (`127.0.0.1`). If that happens, local curl works on the Ollama host but backend-to-Ollama requests hang/time out.
+By default, Ollama can bind to loopback only (`127.0.0.1`). If that happens,
+local curl works on the Ollama host but backend-to-Ollama requests hang/time
+out.
 
 Set Ollama to listen on all interfaces, then restart:
 
@@ -109,7 +125,9 @@ ollama pull phi3:mini
 ollama run qwen2.5:3b "Reply with one word: OK"
 ```
 
-**Note:** On `t3.micro`, pulls and inference can be slow or run out of memory. If needed, stop other services and use a smaller model, or resize the instance when your account allows non-free-tier types.
+**Note:** On `t3.micro`, pulls and inference can be slow or run out of memory.
+If needed, stop other services and use a smaller model, or resize the instance
+when your account allows non-free-tier types.
 
 ---
 
@@ -126,7 +144,8 @@ sudo apt install -y git python3 python3-venv python3-pip build-essential nginx c
 
 ### 2. App tree and virtualenv
 
-Adjust `YOUR_BACKEND_REPO_URL` (or copy the `backend` folder with `scp`/`rsync`).
+Adjust `YOUR_BACKEND_REPO_URL` (or copy the `backend` folder with
+`scp`/`rsync`).
 
 ```bash
 sudo mkdir -p /opt/ai-trading-assistant
@@ -159,11 +178,14 @@ OLLAMA_MODEL=qwen2.5:3b
 OLLAMA_EMBEDDING_MODEL=nomic-embed-text
 ```
 
-Replace `OLLAMA_PRIVATE_IP` with the private IP from the CLI section above (example: `172.31.91.7`).
+Replace `OLLAMA_PRIVATE_IP` with the private IP from the CLI section above
+(example: `172.31.91.7`).
 
-Keep `DATABASE_URL` and `CHROMA_PERSIST_DIR` as in `.env.example` unless you use a different layout.
+Keep `DATABASE_URL` and `CHROMA_PERSIST_DIR` as in `.env.example` unless you use
+a different layout.
 
-Set `CORS_ORIGINS` and `FRONTEND_URL` to match your Vercel app if you use the browser frontend.
+Set `CORS_ORIGINS` and `FRONTEND_URL` to match your Vercel app if you use the
+browser frontend.
 
 ### 4. Prove the backend can reach Ollama
 
@@ -176,18 +198,24 @@ curl -sS "http://OLLAMA_PRIVATE_IP:11434/api/tags"
 You should see JSON listing models. If this times out:
 
 - Confirm both instances are in the **same VPC** (or routable subnets).
-- Confirm `provision_aws_ollama.py` used the correct `backend_security_group_id` (the API instance’s `sg-...`).
-- Security group on Ollama must allow **TCP 11434** from that backend SG (the script sets this when configured correctly).
+- Confirm `provision_aws_ollama.py` used the correct `backend_security_group_id`
+  (the API instance’s `sg-...`).
+- Security group on Ollama must allow **TCP 11434** from that backend SG (the
+  script sets this when configured correctly).
 
 ### 5. Start the API (Uvicorn) — **required for port 8000**
 
-Nginx proxies to `127.0.0.1:8000`, but **nothing listens there until Uvicorn is running**. If `curl http://127.0.0.1:8000/health` says *Connection refused*, the app process is not started (or failed on boot).
+Nginx proxies to `127.0.0.1:8000`, but **nothing listens there until Uvicorn is
+running**. If `curl http://127.0.0.1:8000/health` says _Connection refused_, the
+app process is not started (or failed on boot).
 
-**Order:** get venv + `.env` right (steps 2–3) → **start Uvicorn** (this step) → only then configure Nginx (step 6).
+**Order:** get venv + `.env` right (steps 2–3) → **start Uvicorn** (this step) →
+only then configure Nginx (step 6).
 
 #### 5a. One-off test (foreground)
 
-Use this to see import errors or missing env vars immediately (stop with Ctrl+C):
+Use this to see import errors or missing env vars immediately (stop with
+Ctrl+C):
 
 ```bash
 cd /opt/ai-trading-assistant/backend
@@ -202,16 +230,19 @@ From a **second** SSM session on the same instance:
 curl -sS http://127.0.0.1:8000/health
 ```
 
-You should see `{"status":"ok"}`. If the foreground server prints a traceback, fix that before systemd.
+You should see `{"status":"ok"}`. If the foreground server prints a traceback,
+fix that before systemd.
 
-**Alternative (no `activate`, same as Makefile `make start` but bound to localhost):**
+**Alternative (no `activate`, same as Makefile `make start` but bound to
+localhost):**
 
 ```bash
 cd /opt/ai-trading-assistant/backend
 PYTHONUNBUFFERED=1 .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-(`make start` uses `--host 0.0.0.0`, which also works behind Nginx; for systemd below we keep `127.0.0.1` so the app is not exposed except via Nginx.)
+(`make start` uses `--host 0.0.0.0`, which also works behind Nginx; for systemd
+below we keep `127.0.0.1` so the app is not exposed except via Nginx.)
 
 #### 5b. Production: systemd unit
 
@@ -235,7 +266,10 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-If your login user is not `ubuntu`, change `User=` to match (`whoami`). The unit must run as a user that can read `/opt/ai-trading-assistant/backend` and `.env`. The app loads `.env` from `WorkingDirectory` (Pydantic settings); you do not need `EnvironmentFile` in systemd unless you prefer duplicating env there.
+If your login user is not `ubuntu`, change `User=` to match (`whoami`). The unit
+must run as a user that can read `/opt/ai-trading-assistant/backend` and `.env`.
+The app loads `.env` from `WorkingDirectory` (Pydantic settings); you do not
+need `EnvironmentFile` in systemd unless you prefer duplicating env there.
 
 ```bash
 sudo systemctl daemon-reload
@@ -252,19 +286,23 @@ sudo journalctl -u ai-trading-backend -n 80 --no-pager
 test -x /opt/ai-trading-assistant/backend/.venv/bin/uvicorn && echo "uvicorn ok" || echo "missing venv or pip install"
 ```
 
-Typical issues: wrong `User=`, venv path differs, `pip install -e .` not run, bad `.env` (service exits on startup).
+Typical issues: wrong `User=`, venv path differs, `pip install -e .` not run,
+bad `.env` (service exits on startup).
 
 ### 6. Nginx + TLS (public API)
 
 Do this **after** `curl http://127.0.0.1:8000/health` succeeds locally.
 
-Use your real hostname instead of `api-example.dynu.net` (or your FreeDNS/Afraid domain).
+Use your real hostname instead of `api-example.dynu.net` (or your FreeDNS/Afraid
+domain).
 
 Free DDNS options that work here:
+
 - Dynu (example host: `api-example.dynu.net`)
 - FreeDNS / Afraid.org (example host: `api-example.mooo.com`)
 
-Whichever provider you use, point the hostname A record to the API instance public IP before running Certbot.
+Whichever provider you use, point the hostname A record to the API instance
+public IP before running Certbot.
 
 ```bash
 sudo nano /etc/nginx/sites-available/ai-trading-backend
@@ -301,7 +339,8 @@ sudo certbot --nginx -d api-example.dynu.net
 
 ## Optional: auto-update Dynu DNS from backend instance
 
-Use this if your backend EC2 public IP may change and you want Dynu to follow it automatically.
+Use this if your backend EC2 public IP may change and you want Dynu to follow it
+automatically.
 
 Run these on the **backend instance**:
 
@@ -313,7 +352,8 @@ sudo cp /opt/ai-trading-assistant/backend/deploy/templates/dynu-ddns.service /et
 sudo cp /opt/ai-trading-assistant/backend/deploy/templates/dynu-ddns.timer /etc/systemd/system/dynu-ddns.timer
 ```
 
-Create Dynu config (uses [REST API v2](https://www.dynu.com/support/api) with an **API key** from Dynu Control Panel → **API Credentials**):
+Create Dynu config (uses [REST API v2](https://www.dynu.com/support/api) with an
+**API key** from Dynu Control Panel → **API Credentials**):
 
 ```bash
 sudo tee /etc/default/dynu-ddns >/dev/null <<'EOF'
@@ -328,6 +368,26 @@ EOF
 sudo chmod 600 /etc/default/dynu-ddns
 ```
 
+**Alternative — [IP Update Protocol](https://www.dynu.com/DynamicDNS/IP-Update-Protocol) (GET only):**
+
+Dynu documents this as the long-standing way to push a new IPv4: **`GET https://api.dynu.com/nic/update`** with query parameters `hostname`, `password`, and optionally `myip`. It avoids REST **`POST /v2/dns/{id}`**, which some environments see as HTTP **505**. The template script supports it when **`DYNU_NIC_PASSWORD`** is set (then **`DYNU_API_KEY` is not required**).
+
+- **`DYNU_NIC_PASSWORD`**: the **IP update / DDNS password** for that hostname in the Dynu control panel (you may use the plain password or an MD5/SHA-256 hash of it, per [Dynu’s IP Update Protocol](https://www.dynu.com/DynamicDNS/IP-Update-Protocol)).
+- **`DYNU_HOSTNAME`**: must match the FQDN (no trailing spaces on the line in `/etc/default/dynu-ddns`).
+
+Example:
+
+```bash
+sudo tee /etc/default/dynu-ddns >/dev/null <<'EOF'
+DYNU_HOSTNAME=api-example.dynu.net
+DYNU_NIC_PASSWORD=your_ip_update_password_or_md5_hash
+DYNU_IP_SOURCE=imds
+EOF
+sudo chmod 600 /etc/default/dynu-ddns
+```
+
+Success log line: `dynu nic/update ok: script_rev=... hostname=... ipv4=... response=good ...` (or `nochg` if the IP was already correct).
+
 Enable and test:
 
 ```bash
@@ -337,12 +397,16 @@ sudo systemctl start dynu-ddns.service
 sudo journalctl -u dynu-ddns.service -n 50 --no-pager
 ```
 
-Expected log line: `dynu v2 update ok: dns_id=... ipv4=...` plus JSON from Dynu (pretty-printed when possible).
+Expected log line (REST mode): `dynu v2 update ok: script_rev=... dns_id=... ipv4=...` plus JSON from Dynu
+(pretty-printed when possible).
 
 **If you see `missing required env var: DYNU_API_KEY`:**
 
-- The unit reads **`/etc/default/dynu-ddns`** via `EnvironmentFile`. Each line must be `KEY=value` — **do not** use `export` (systemd does not apply those the same way as a shell).
-- Replace `YOUR_DYNU_API_KEY` with the real key from Dynu → **API Credentials**; save the file, then:
+- The unit reads **`/etc/default/dynu-ddns`** via `EnvironmentFile`. Each line
+  must be `KEY=value` — **do not** use `export` (systemd does not apply those
+  the same way as a shell).
+- Replace `YOUR_DYNU_API_KEY` with the real key from Dynu → **API Credentials**;
+  save the file, then:
 
 ```bash
 sudo systemctl daemon-reload
@@ -358,7 +422,9 @@ sudo systemctl show dynu-ddns.service -p EnvironmentFiles --no-pager
 
 **If you see `unexpected /dns response (not a list)`:**
 
-Dynu’s API returns JSON like `{"statusCode": 200, "domains": [...]}` rather than a bare array. Your server is still running an **old** copy of the script. Copy the latest template to the instance and retry:
+Dynu’s API returns JSON like `{"statusCode": 200, "domains": [...]}` rather than
+a bare array. Your server is still running an **old** copy of the script. Copy
+the latest template to the instance and retry:
 
 ```bash
 sudo cp /opt/ai-trading-assistant/backend/deploy/templates/dynu-ddns-update.sh /usr/local/bin/dynu-ddns-update.sh
@@ -368,11 +434,13 @@ sudo systemctl start dynu-ddns.service
 
 **If you see `curl: (22) ... error: 505`:**
 
-Deploy the latest `dynu-ddns-update.sh` from this repo. It uses **HTTP/1.1**, **`--no-alpn`** when your `curl` supports it, and **retries with HTTP/1.0** if the error looks like HTTP 505. Successful runs log `script_rev=` (current template uses rev **4**).
+1. Deploy the latest `dynu-ddns-update.sh` from this repo (successful runs log **`script_rev=`**; current template is rev **5**). It uses **HTTP/1.1**, **`--no-alpn`** when `curl` supports it, and **retries with HTTP/1.0** when the error looks like HTTP 505.
+2. Set **`DYNU_DNS_ID`** so the job skips **`GET /v2/dns`** (list) and only runs **`POST /v2/dns/{id}`** (your manual test showed **`GET /v2/dns/{id}`** can work while list/POST misbehave).
+3. If POST still fails, switch to **[IP Update Protocol](https://www.dynu.com/DynamicDNS/IP-Update-Protocol)**: set **`DYNU_NIC_PASSWORD`** + **`DYNU_HOSTNAME`** and remove reliance on REST (see example above).
 
-Set **`DYNU_DNS_ID`** in `/etc/default/dynu-ddns` so the job skips `GET /dns` and only runs `POST .../dns/{id}` (fewer moving parts).
-
-**Timer vs one-shot service:** `systemctl stop dynu-ddns.service` does not stop **`dynu-ddns.timer`**. To pause scheduled runs while testing, use `sudo systemctl stop dynu-ddns.timer` (and `start` again when done).
+**Timer vs one-shot service:** `systemctl stop dynu-ddns.service` does not stop
+**`dynu-ddns.timer`**. To pause scheduled runs while testing, use
+`sudo systemctl stop dynu-ddns.timer` (and `start` again when done).
 
 ---
 
@@ -385,7 +453,8 @@ curl -sS http://127.0.0.1:8000/health
 curl -sS http://127.0.0.1:8000/api/health
 ```
 
-`api/health` should report `database` and `ollama` as **ok** when `OLLAMA_BASE_URL` is correct and Ollama is up.
+`api/health` should report `database` and `ollama` as **ok** when
+`OLLAMA_BASE_URL` is correct and Ollama is up.
 
 From your laptop (if you have HTTPS + DNS):
 
@@ -398,13 +467,14 @@ curl -sS https://YOUR_API_HOST/api/health
 
 ## Quick reference: networking
 
-| From            | To              | Port   | Purpose        |
-|-----------------|-----------------|--------|----------------|
-| Internet        | API instance    | 80/443 | Nginx → FastAPI |
-| API instance    | Ollama instance | 11434  | Ollama HTTP API |
-| Internet        | Ollama instance | 11434  | Should stay closed in production |
+| From         | To              | Port   | Purpose                          |
+| ------------ | --------------- | ------ | -------------------------------- |
+| Internet     | API instance    | 80/443 | Nginx → FastAPI                  |
+| API instance | Ollama instance | 11434  | Ollama HTTP API                  |
+| Internet     | Ollama instance | 11434  | Should stay closed in production |
 
-The provision script is meant to allow **11434 only from the backend security group** (not the world).
+The provision script is meant to allow **11434 only from the backend security
+group** (not the world).
 
 ---
 
