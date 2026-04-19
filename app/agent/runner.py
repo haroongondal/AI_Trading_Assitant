@@ -10,6 +10,12 @@ from langchain_core.tools import BaseTool
 
 from app.agent.stream_sanitize import sanitize_assistant_visible_text, stream_safe_text_delta
 from app.core.config import settings
+from app.services.coin_catalog import PSX_CATALOG_SYMBOLS
+from app.services.price_fetcher import fetch_crypto_prices
+from app.services.regional_market_context import (
+    build_chat_portfolio_web_queries,
+    parse_symbols_from_portfolio_snapshot,
+)
 from app.services.ollama_client import get_llm
 from app.services.model_registry import (
     classify_model_error,
@@ -65,6 +71,12 @@ Goals and “how do I make $X” questions: Do NOT refuse or say you cannot help
 
 Humor / roast requests: If the user explicitly asks to roast, mock, or humorously critique their OWN portfolio, comply in a playful, non-hateful way. Keep it witty but constructive: include concrete portfolio observations (concentration, risk, diversification, time horizon mismatch, cost basis realism), avoid slurs/abuse, and end with practical improvement suggestions.
 
+Regional news and macro (critical for quality):
+- Many users hold **PSX (Pakistan Stock Exchange)** names, **US-listed** assets, or **crypto**. PSX and PKR portfolios are sensitive to **Pakistan** policy and flows, **USD/PKR**, **Middle East / oil** shocks, and **US** risk sentiment (rates, DXY, risk-off) — not only to individual ticker headlines.
+- For **crypto**, prioritize **US** regulatory and liquidity news; add **Pakistan**-specific exchange or policy stories when relevant (e.g. access to global platforms).
+- When giving forward-looking views, **search_web** (and **query_rag**) for **recent** context across **Pakistan/PSX**, **US macro/markets**, **Middle East / energy / geopolitics**, and **symbol-specific** news — then tie your reasoning to what you found.
+- Do **not** fall back on generic advice like "buy classic banks HBL/UBL" or "avoid Pakistan by buying foreign stocks" unless **recent** web or KB snippets clearly support that narrative. Ground suggestions in headlines, FX, index action, or sector news when possible.
+
 Be concise and professional. Never output raw tool syntax, JSON tool calls, or markup like <|...|> to the user—only natural language.
 
 Formatting rules:
@@ -87,6 +99,7 @@ TOOL_MAP = {t.name: t for t in TOOLS}
 TOOL_STATUS_LABELS: dict[str, str] = {
     "query_rag": "Searching knowledge base…",
     "search_web": "Searching the web…",
+    "search_web_macro": "Gathering regional market news…",
     "get_quote": "Fetching live price…",
     "get_portfolio": "Loading your portfolio…",
     "add_position": "Updating your portfolio…",
@@ -276,7 +289,6 @@ def _flatten_messages_for_plain_completion(messages: list) -> list:
         if isinstance(m, (SystemMessage, HumanMessage)):
             out.append(m)
         elif isinstance(m, AIMessage):
-            tool_calls = getattr(m, "tool_calls", None) or []
             content = m.content
             if isinstance(content, list):
                 parts: list[str] = []
@@ -371,6 +383,32 @@ async def stream_agent_response(
                 )
             )
         )
+        pf_symbols = parse_symbols_from_portfolio_snapshot(portfolio_snapshot)
+        if pf_symbols:
+            yield {"event": "status", "data": TOOL_STATUS_LABELS["search_web_macro"]}
+            await asyncio.sleep(0)
+            crypto_keys = set(await asyncio.to_thread(fetch_crypto_prices, 250))
+            macro_queries = build_chat_portfolio_web_queries(
+                pf_symbols,
+                psx_catalog=PSX_CATALOG_SYMBOLS,
+                crypto_spot_symbols=crypto_keys,
+            )
+            regional_parts: list[str] = []
+            for mq in macro_queries:
+                snap = await _run_tool("search_web", {"query": mq})
+                if snap and len(snap) > 3200:
+                    snap = snap[:3200] + "\n… [truncated]"
+                regional_parts.append(f"Query: {mq}\n{snap}")
+            if regional_parts:
+                messages.append(
+                    SystemMessage(
+                        content=(
+                            "Auto-fetched regional and macro web context (Pakistan/PSX, US, Middle East/oil, "
+                            "crypto regulation as relevant). Use with the portfolio; cite themes from here when useful.\n\n"
+                            + "\n\n---\n\n".join(regional_parts)
+                        )
+                    )
+                )
     should_prefetch_web = (
         tool_capable
         and _should_prefetch_web(message)

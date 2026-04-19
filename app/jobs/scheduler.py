@@ -22,6 +22,7 @@ from app.services.price_fetcher import (
     fetch_crypto_prices,
 )
 from app.services.coin_catalog import PSX_CATALOG_SYMBOLS
+from app.services.regional_market_context import build_digest_rag_query, build_digest_web_queries
 from app.services.email import send_notification as send_email
 from app.services.whatsapp import send_notification as send_whatsapp
 from app.tools.quote import holding_digest_lines
@@ -113,48 +114,28 @@ def _web_search(query: str) -> str:
         return f"Search error: {exc}"
 
 
-def _top_news_themes(news_context: str) -> list[str]:
-    stopwords = {
-        "THE",
-        "AND",
-        "FOR",
-        "WITH",
-        "FROM",
-        "THIS",
-        "THAT",
-        "HAVE",
-        "WILL",
-        "MARKET",
-        "CRYPTO",
-        "STOCK",
-        "PRICE",
-        "NEWS",
-        "ABOUT",
-    }
-    counts: dict[str, int] = {}
-    for token in re.findall(r"\b[A-Za-z]{4,15}\b", (news_context or "").upper()):
-        if token in stopwords:
-            continue
-        counts[token] = counts.get(token, 0) + 1
-    ranked = sorted(counts.items(), key=lambda item: item[1], reverse=True)
-    return [token for token, _ in ranked[:3]]
-
-
-def _build_targeted_web_context(portfolio_symbols: list[str], goal_text: str, news_context: str) -> str:
+def _build_targeted_web_context(
+    portfolio_symbols: list[str],
+    goal_text: str,
+    news_context: str,
+    *,
+    held_psx: list[str],
+    held_crypto: list[str],
+) -> str:
     if not portfolio_symbols:
         return "No portfolio symbols available for targeted web search."
-    joined = ", ".join(portfolio_symbols[:8])
-    themes = _top_news_themes(news_context)
-    theme_fragment = f" and themes {', '.join(themes)}" if themes else ""
-    queries = [
-        f"Latest market updates and catalysts for {joined}{theme_fragment}",
-        f"Risk outlook and near-term momentum for {joined}. Goal context: {goal_text[:120]}. News themes: {', '.join(themes) or 'none'}",
-    ]
+    queries = build_digest_web_queries(
+        portfolio_symbols,
+        held_psx=held_psx,
+        held_crypto=held_crypto,
+        goal_text=goal_text,
+        news_context=news_context,
+    )
     snippets = []
     for query in queries:
         result = _web_search(query)
         if result:
-            snippets.append(f"Query: {query}\nResult: {result[:700]}")
+            snippets.append(f"Query: {query}\nResult: {result[:750]}")
     return "\n\n".join(snippets) if snippets else "Targeted web search returned no usable results."
 
 
@@ -286,7 +267,7 @@ async def _analyze_and_notify_user(db: AsyncSession, user: User, positions: list
 
     retriever = get_rag_retriever()
     try:
-        docs = retriever.invoke("portfolio specific crypto equities forex emerging markets latest news analysis")
+        docs = retriever.invoke(build_digest_rag_query(held_symbols))
         seen_sources = set()
         unique_docs = []
         for d in docs:
@@ -300,7 +281,13 @@ async def _analyze_and_notify_user(db: AsyncSession, user: User, positions: list
         news_context = "\n\n".join(d.page_content[:600] for d in docs) if docs else "No recent news in knowledge base."
     except Exception:
         news_context = "News retrieval failed."
-    targeted_web_context = _build_targeted_web_context(held_symbols, goal_text, news_context)
+    targeted_web_context = _build_targeted_web_context(
+        held_symbols,
+        goal_text,
+        news_context,
+        held_psx=held_psx,
+        held_crypto=held_crypto_symbols,
+    )
 
     prompt = f"""You are a concise markets analyst. Analyze this user's portfolio only and produce portfolio-aware sections.
 
@@ -314,7 +301,7 @@ Recent news context:
 {news_context[:3000]}
 
 Targeted web intelligence:
-{targeted_web_context[:2200]}
+{targeted_web_context[:4500]}
 
 Rules:
 - Never dump all market prices.
@@ -323,6 +310,8 @@ Rules:
 - For **PSX** (Pakistan Stock Exchange) equities listed in the footnotes, use **equity** language: shares, PKR per share, dividends, earnings — never crypto jargon (no tokens, staking, DeFi, stablecoins, or "crypto index funds" for PSX names).
 - If a PSX symbol still shows N/A, say data/config is missing — do not assume it is a crypto asset.
 - For other non-crypto assets without a price line, use web/news context and "Price: N/A" if needed.
+- **Macro and regions:** Use "Targeted web intelligence" and "Recent news context" for **Pakistan / PSX**, **United States (rates, risk, USD)**, **Middle East / oil**, and **crypto regulation** (US + Pakistan when relevant). PSX moves with regional risk and FX — tie your analysis to those headlines when the snippets support it.
+- **No lazy deflection:** Do not recommend generic "buy blue-chip banks like HBL/UBL" or "avoid Pakistan by buying foreign stocks" unless **recent** context in the snippets clearly supports it. Prefer views grounded in this week's Pakistan, US, and Middle East news.
 - Keep each section concise and useful.
 - Analyze the goal realism using estimated portfolio value and timeline context from user goal. If target appears aggressive, explicitly say so. If the goal is in PKR but you only have USD estimates (or vice versa), state the limitation briefly instead of claiming portfolio value is zero without explanation.
 

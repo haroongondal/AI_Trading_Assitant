@@ -62,7 +62,7 @@ def get_rag_retriever():
 
 @tool
 def query_rag(query: str) -> str:
-    """Search the knowledge base for market news and analysis (content may skew crypto/forex depending on ingest). Use for background context; combine with search_web for fresh tickers."""
+    """Search the knowledge base for market news and analysis (content may skew crypto/forex depending on ingest). Use for background context; combine with search_web for fresh tickers and regional macro (Pakistan/PSX, US, Middle East)."""
     retriever = get_rag_retriever()
     try:
         docs = retriever.invoke(query)

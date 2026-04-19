@@ -34,6 +34,7 @@ _MAIL_MD_ALLOWED_TAGS = frozenset(
     {
         "p",
         "br",
+        "div",
         "h1",
         "h2",
         "h3",
@@ -62,9 +63,35 @@ _MAIL_MD_ALLOWED_TAGS = frozenset(
 _MAIL_MD_ALLOWED_ATTRS = {
     "a": ["href", "title", "rel"],
     "code": ["class"],
+    "div": ["class"],
     "th": ["align", "colspan", "rowspan"],
     "td": ["align", "colspan", "rowspan"],
 }
+
+
+def _wrap_mail_tables(html: str) -> str:
+    """Wrap each <table>…</table> for horizontal scroll on small screens (email clients)."""
+    out: list[str] = []
+    pos = 0
+    lower = html.lower()
+    open_t = "<table"
+    close_t = "</table>"
+    while pos < len(html):
+        start = lower.find(open_t, pos)
+        if start == -1:
+            out.append(html[pos:])
+            break
+        out.append(html[pos:start])
+        end_tag = lower.find(close_t, start)
+        if end_tag == -1:
+            out.append(html[start:])
+            break
+        end = end_tag + len(close_t)
+        out.append('<div class="mail-table-outer">')
+        out.append(html[start:end])
+        out.append("</div>")
+        pos = end
+    return "".join(out)
 
 
 def _smtp_ready() -> bool:
@@ -91,8 +118,9 @@ def _markdown_to_safe_html(markdown_text: str) -> str:
         output_format="html5",
     )
     raw_html = md.convert(text)
+    wrapped = _wrap_mail_tables(raw_html)
     return bleach.clean(
-        raw_html,
+        wrapped,
         tags=_MAIL_MD_ALLOWED_TAGS,
         attributes=_MAIL_MD_ALLOWED_ATTRS,
         protocols=("http", "https", "mailto"),
@@ -117,11 +145,13 @@ body {{-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;}}
   border-bottom:1px solid {t['border']};
 }}
 .mail-subtitle {{ margin:0 0 18px;color:{t['muted']};font-size:13px;line-height:1.45; }}
-.mail-badge-wrap {{ margin:0 0 16px; }}
+.mail-badge-wrap {{ margin:0 0 16px;max-width:100%; }}
 .mail-badge {{
-  display:inline-block;background:linear-gradient(135deg,{t['accent_dim']},#0369a1);color:#f8fafc;
+  display:inline-block;max-width:100%;box-sizing:border-box;
+  background:linear-gradient(135deg,{t['accent_dim']},#0369a1);color:#f8fafc;
   border-radius:999px;padding:8px 14px;font-size:12px;font-weight:600;
   border:1px solid rgba(125,211,252,0.35);box-shadow:0 4px 14px rgba(14,165,233,0.25);
+  word-wrap:break-word;overflow-wrap:break-word;
 }}
 .mail-body {{
   background:{t['bg_elevated']};
@@ -160,19 +190,35 @@ body {{-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;}}
   color:{t['muted']};background:{t['blockquote_bg']};border-radius:0 8px 8px 0;
 }}
 .mail-md hr {{ border:none;border-top:1px solid {t['border']};margin:1rem 0; }}
-.mail-md table {{
-  width:100%;border-collapse:collapse;margin:0.25rem 0 0.9rem;font-size:0.9rem;
-  border:1px solid {t['border']};border-radius:10px;overflow:hidden;
+.mail-table-outer {{
+  max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;
+  margin:0.25rem 0 0.9rem;border:1px solid {t['border']};border-radius:10px;
+  box-sizing:border-box;
+}}
+.mail-md .mail-table-outer table {{
+  width:max-content;min-width:100%;border-collapse:collapse;margin:0;font-size:0.9rem;
+  border:none;border-radius:0;
 }}
 .mail-md thead {{ background:{t['surface_2']}; }}
-.mail-md th,.mail-md td {{ border:1px solid {t['border']};padding:0.55rem 0.7rem;text-align:left;vertical-align:top; }}
+.mail-md .mail-table-outer th,.mail-md .mail-table-outer td {{
+  border:1px solid {t['border']};padding:0.55rem 0.7rem;text-align:left;vertical-align:top;
+}}
 .mail-md th {{ font-weight:650;color:{t['text']}; }}
 .mail-md tbody tr:nth-child(even) {{ background:rgba(255,255,255,0.02); }}
 @media (max-width:600px) {{
   .mail-page {{ padding:10px 8px !important; }}
-  .mail-wrap {{ padding:14px 14px !important;border-radius:12px !important; }}
-  .mail-body {{ padding:12px 14px !important; }}
+  .mail-wrap {{ padding:14px 14px !important;border-radius:10px !important; }}
+  .mail-body {{ padding:12px 14px !important;border-radius:10px !important; }}
   .mail-title {{ font-size:18px !important; }}
+  .mail-badge {{
+    border-radius:8px !important;display:block !important;
+    padding:8px 12px !important;
+  }}
+  .mail-table-outer {{ border-radius:6px !important; }}
+  .mail-md .mail-table-outer table {{ font-size:0.82rem !important; }}
+  .mail-md .mail-table-outer th,.mail-md .mail-table-outer td {{
+    padding:0.4rem 0.45rem !important;word-break:break-word;
+  }}
   .mail-md h1 {{ font-size:1.15rem !important; }}
   .mail-md h2 {{ font-size:1.05rem !important; }}
   .mail-md p,.mail-md li {{ font-size:14px !important; }}
