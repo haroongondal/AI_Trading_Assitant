@@ -2,9 +2,10 @@
 Configuration loaded from environment variables.
 JS parallel: like reading process.env in Node; pydantic-settings validates and types them.
 """
+import json
 from urllib.parse import urlparse
 
-from pydantic import field_validator, model_validator
+from pydantic import AliasChoices, Field, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,6 +18,40 @@ def _parse_cors_origins(v: str | list[str]) -> list[str]:
     return [o.strip() for o in s.split(",") if o.strip()]
 
 
+def _parse_csv_list(v: str | list[str]) -> list[str]:
+    if isinstance(v, list):
+        return [o.strip() for o in v if isinstance(o, str) and o.strip()]
+    s = str(v).strip()
+    if not s:
+        return []
+    return [o.strip() for o in s.split(",") if o.strip()]
+
+
+def _parse_groq_model_candidates_from_env(raw: str) -> list[str]:
+    """
+    Groq fallback order from GROQ_MODEL_CANDIDATES.
+
+    Stored as plain str so pydantic-settings never runs json.loads on the whole
+    line (which breaks on CSV, comments, or \"Extra data\" after a JSON array).
+    """
+    defaults = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+    s = (raw or "").strip()
+    if not s:
+        return defaults
+    if s.startswith("["):
+        dec = json.JSONDecoder()
+        try:
+            obj, _end = dec.raw_decode(s)
+            if isinstance(obj, list):
+                out = [str(x).strip() for x in obj if str(x).strip()]
+                if out:
+                    return out
+        except json.JSONDecodeError:
+            pass
+    parsed = _parse_csv_list(s)
+    return parsed or defaults
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -27,10 +62,41 @@ class Settings(BaseSettings):
     # Ollama (local LLM)
     OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
     OLLAMA_MODEL: str = "llama3.2"
+    OLLAMA_HOSTED_LLAMA31_MODEL: str = "llama3.1"
     OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
     OLLAMA_TEMPERATURE: float = 0.3
     # Optional context window (unset = Ollama default)
     OLLAMA_NUM_CTX: int | None = None
+
+    # Third-party model APIs (OpenAI-compatible endpoints)
+    GOOGLE_AI_STUDIO_API_KEY: str = ""
+    GROQ_API_KEY: str = ""
+    HUGGINGFACE_API_KEY: str = ""
+    OPENROUTER_API_KEY: str = ""
+    GITHUB_MODELS_API_KEY: str = ""
+    CEREBRAS_API_KEY: str = ""
+    # Optional market data (used by `get_quote` before web search)
+    FINNHUB_API_KEY: str = ""
+    TWELVEDATA_API_KEY: str = ""
+    ALPHA_VANTAGE_API_KEY: str = ""
+    # Chat model visibility / rollout controls
+    CHAT_MODEL_WHITELIST: list[str] = [
+        "local-llama31",
+        "groq-gpt-oss-120b",
+        "groq-gpt-oss-20b",
+        "groq-llama-3.3-70b",
+        "groq-llama-3.1-8b",
+    ]
+    # If true, API returns only models that are configured and runnable.
+    CHAT_MODELS_SHOW_CONFIGURED_ONLY: bool = True
+    # If false, runtime chat fallback never includes local Ollama automatically.
+    CHAT_INCLUDE_LOCAL_FALLBACK: bool = True
+    # Ordered Groq model names (env GROQ_MODEL_CANDIDATES). Plain str avoids
+    # pydantic-settings json.loads failures on CSV or malformed JSON.
+    groq_model_candidates_raw: str = Field(
+        default="",
+        validation_alias=AliasChoices("GROQ_MODEL_CANDIDATES"),
+    )
 
     # Agent ReAct loop (each turn = one LLM stream + optional tools)
     AGENT_MAX_TURNS: int = 6
@@ -72,6 +138,26 @@ class Settings(BaseSettings):
         if v is None:
             return default_origins
         return _parse_cors_origins(v) if v else default_origins
+
+    @field_validator("CHAT_MODEL_WHITELIST", mode="before")
+    @classmethod
+    def parse_chat_model_whitelist(cls, v: str | list[str]) -> list[str]:
+        default_models = [
+            "local-llama31",
+            "groq-gpt-oss-120b",
+            "groq-gpt-oss-20b",
+            "groq-llama-3.3-70b",
+            "groq-llama-3.1-8b",
+        ]
+        if v is None:
+            return default_models
+        parsed = _parse_csv_list(v)
+        return parsed or default_models
+
+    @computed_field
+    @property
+    def GROQ_MODEL_CANDIDATES(self) -> list[str]:
+        return _parse_groq_model_candidates_from_env(self.groq_model_candidates_raw)
 
     # Demo user when no JWT cookie / Bearer token is sent (local dev without Google)
     DEFAULT_USER_ID: str = "default-user"

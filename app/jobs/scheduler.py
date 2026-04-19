@@ -27,6 +27,12 @@ from app.tools.rag import get_rag_retriever
 from app.tools.web_search import search_web
 from app.agent.stream_sanitize import sanitize_assistant_visible_text
 from app.services.ollama_client import get_llm
+from app.services.model_registry import (
+    classify_model_error,
+    extract_error_status_code,
+    get_model_spec,
+    get_model_specs,
+)
 from langchain_core.messages import SystemMessage, HumanMessage
 
 logger = logging.getLogger(__name__)
@@ -326,14 +332,54 @@ Respond in markdown with EXACT headers in this order:
 
 Under recommendation include one of BUY / HOLD / SELL and one concrete action sentence."""
 
-    llm = get_llm()
     messages = [
         SystemMessage(
             content="You are a portfolio notification analyst. Follow requested markdown section headers exactly."
         ),
         HumanMessage(content=prompt),
     ]
-    response = await llm.ainvoke(messages)
+    response = None
+    all_specs = get_model_specs()
+    groq_model_to_id = {m.model: m.id for m in all_specs if m.provider.lower() == "groq"}
+    preferred_models = ["groq-gpt-oss-120b", "groq-llama-3.3-70b", "google-gemini-2.0-flash"]
+    for groq_model in settings.GROQ_MODEL_CANDIDATES:
+        mid = groq_model_to_id.get((groq_model or "").strip())
+        if mid and mid not in preferred_models:
+            preferred_models.append(mid)
+    last_err = None
+    for model_id in preferred_models:
+        try:
+            spec = get_model_spec(model_id)
+            if spec.id != model_id or not spec.enabled:
+                logger.info("scheduler_model_skip user=%s model=%s reason=not_visible_or_disabled", uid, model_id)
+                continue
+            logger.info(
+                "scheduler_model_attempt user=%s model=%s provider=%s endpoint=%s",
+                uid,
+                spec.id,
+                spec.provider,
+                spec.base_url,
+            )
+            llm = get_llm(model_id)
+            response = await llm.ainvoke(messages)
+            logger.info("Analysis job: model=%s provider=%s user=%s", spec.label, spec.provider, uid)
+            break
+        except Exception as e:
+            last_err = e
+            logger.warning(
+                "scheduler_model_failed user=%s model=%s status=%s category=%s err=%s",
+                uid,
+                model_id,
+                extract_error_status_code(e),
+                classify_model_error(e),
+                e,
+            )
+            continue
+    if response is None:
+        if last_err:
+            raise last_err
+        raise RuntimeError("No configured Google/Groq model available for scheduler analysis.")
+
     text = sanitize_assistant_visible_text((response.content or "").strip())
 
     title = "Portfolio & market update"

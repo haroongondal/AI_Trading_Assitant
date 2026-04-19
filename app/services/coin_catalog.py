@@ -118,7 +118,14 @@ _PSX_50: list[dict[str, Any]] = [
     {"id": "psx-unilever", "symbol": "UPFL", "name": "Unilever Pakistan Foods (PSX)", "market_cap_rank": None},
     {"id": "psx-nestle", "symbol": "NESTLE", "name": "Nestle Pakistan (PSX)", "market_cap_rank": None},
     {"id": "psx-glaxo", "symbol": "GLAXO", "name": "GlaxoSmithKline Pakistan (PSX)", "market_cap_rank": None},
+    {"id": "psx-sazew", "symbol": "SAZEW", "name": "Sazgar Engineering Works (PSX)", "market_cap_rank": None},
 ]
+
+# PSX-focused catalog rows (dropdown + PKR-flavored web search hints). Quote routing no longer
+# depends only on this set — see `get_quote` + Twelve Data for broader PSX coverage.
+PSX_CATALOG_SYMBOLS: frozenset[str] = frozenset(
+    (row["symbol"] or "").upper() for row in _PSX_50 if row.get("symbol")
+)
 
 
 def _fetch_top_coins(per_page: int = 100) -> list[dict[str, Any]]:

@@ -19,6 +19,13 @@ _ALIASES: dict[str, str] = {
     "POLYGON": "MATIC",
     "CHAINLINK": "LINK",
     "LITECOIN": "LTC",
+    # Optional name/alias → primary ticker (any exchange)
+    "SAZGAR": "SAZEW",
+    "SAZGARENGINEERING": "SAZEW",
+    "SAZGARENGINEERINGWORKS": "SAZEW",
+    "MARIENERGIES": "MARI",
+    "MARIENERGY": "MARI",
+    "MARIENERGIESLIMITED": "MARI",
 }
 
 

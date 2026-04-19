@@ -1,6 +1,14 @@
 """
 FastAPI application entry. JS parallel: like Express app in index.js - CORS, router mounting.
 """
+import os
+import warnings
+
+# Before chromadb (via RAG) loads: disable broken/noisy product telemetry in some envs.
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "0")
+os.environ.setdefault("CHROMA_TELEMETRY_ENABLED", "false")
+os.environ.setdefault("CHROMA_ANONYMIZED_TELEMETRY", "false")
+
 import logging
 from contextlib import asynccontextmanager
 
@@ -19,7 +27,20 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logging.getLogger("app").setLevel(_root_level)
+# Chroma/PostHog mismatch can spam ERROR on every import; telemetry is off above.
+logging.getLogger("chromadb.telemetry").disabled = True
+logging.getLogger("chromadb.telemetry.product.posthog").disabled = True
+# Per-request GET lines from price tools drown real errors and make the app feel "stuck".
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("primp").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
+
+warnings.filterwarnings(
+    "ignore",
+    message=".*Chroma.*deprecated.*",
+    category=DeprecationWarning,
+)
 
 
 def _warn_if_oauth_frontend_url_misconfigured() -> None:

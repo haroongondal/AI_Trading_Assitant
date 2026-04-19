@@ -2,6 +2,12 @@
 RAG tool: vector search over stored news/documents. JS parallel: like a "search knowledge base" API the agent calls.
 """
 import os
+
+# Belt-and-suspenders (main.py also sets this before other imports).
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "0")
+os.environ.setdefault("CHROMA_TELEMETRY_ENABLED", "false")
+os.environ.setdefault("CHROMA_ANONYMIZED_TELEMETRY", "false")
+
 from langchain_community.vectorstores import Chroma
 from langchain_ollama import OllamaEmbeddings
 from langchain_core.tools import tool

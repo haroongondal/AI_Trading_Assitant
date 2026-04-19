@@ -140,9 +140,25 @@ def strip_generic_tool_json_blobs(text: str) -> str:
     return out
 
 
+_THINK_CLOSED_RE = re.compile(r"<think\b[^>]*>.*?</think\s*>", re.DOTALL | re.IGNORECASE)
+_THINK_OPEN_RE = re.compile(r"<think\b[^>]*>.*\Z", re.DOTALL | re.IGNORECASE)
+_ANALYSIS_RE = re.compile(r"<\|analysis\|>.*?(?=<\|final\|>|\Z)", re.DOTALL | re.IGNORECASE)
+
+
+def strip_reasoning_channels(text: str) -> str:
+    """Remove Harmony / gpt-oss chain-of-thought so only the final answer remains."""
+    if not text:
+        return text
+    out = _THINK_CLOSED_RE.sub("", text)
+    out = _THINK_OPEN_RE.sub("", out)
+    out = _ANALYSIS_RE.sub("", out)
+    return out
+
+
 def sanitize_assistant_visible_text(text: str, *, trim: bool = True) -> str:
     """Full pipeline for user-visible assistant content."""
-    s = strip_ollama_tool_blocks(text)
+    s = strip_reasoning_channels(text)
+    s = strip_ollama_tool_blocks(s)
     s = strip_known_tool_json_blobs(s)
     s = strip_generic_tool_json_blobs(s)
     s = re.sub(r"<\|[^>]+\|>", "", s)
@@ -155,22 +171,27 @@ def sanitize_assistant_visible_text(text: str, *, trim: bool = True) -> str:
     return s.strip() if trim else s
 
 
-def stream_safe_text_delta(buffer: str, last_emitted_safe: str) -> tuple[str, str]:
+def stream_safe_text_delta(buffer: str, last_emitted_safe: str) -> tuple[str, str, bool]:
     """
     Incremental streaming: new user-visible suffix since last emit (prefix-stable under sanitize).
-    Returns (delta_to_yield, new_last_emitted_safe).
+    Returns (text_to_yield, new_last_emitted_safe, did_resync).
+
+    When did_resync is True the returned text is the FULL current sanitized content
+    (not a suffix), and the caller must instruct the frontend to REPLACE the current
+    in-progress message rather than append. This avoids duplicated paragraphs when the
+    sanitizer shrinks the buffer (e.g. streaming tool-call JSON fragments inside content).
     """
     # Preserve boundary whitespace during incremental streaming so words do not collapse.
     current = sanitize_assistant_visible_text(buffer, trim=False)
     if not current:
-        return "", last_emitted_safe
+        return "", last_emitted_safe, False
     if last_emitted_safe and not current.startswith(last_emitted_safe):
         logger.warning(
             "stream_safe_text_delta: non-prefix visible text (buffer_len=%s); resyncing",
             len(buffer),
         )
-        return current, current
-    return current[len(last_emitted_safe) :], current
+        return current, current, True
+    return current[len(last_emitted_safe) :], current, False
 
 
 def is_substantive_visible_text(text: str) -> bool:
