@@ -6,9 +6,65 @@ import smtplib
 from html import escape
 from email.message import EmailMessage
 
+import bleach
+import markdown
+
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Mirrors frontend/app/globals.css :root — email-safe hex (no color-mix()).
+_MAIL_THEME = {
+    "bg": "#070b12",
+    "bg_elevated": "#0c1220",
+    "surface": "#111827",
+    "surface_2": "#1e293b",
+    "border": "#2d3a52",
+    "border_strong": "#3d4f6f",
+    "text": "#f1f5f9",
+    "muted": "#94a3b8",
+    "accent": "#38bdf8",
+    "accent_hover": "#7dd3fc",
+    "accent_dim": "#0ea5e9",
+    "code_bg": "rgba(255, 255, 255, 0.08)",
+    "blockquote_bg": "rgba(56, 189, 248, 0.08)",
+}
+
+_MAIL_MD_ALLOWED_TAGS = frozenset(
+    {
+        "p",
+        "br",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "ul",
+        "ol",
+        "li",
+        "strong",
+        "em",
+        "code",
+        "pre",
+        "blockquote",
+        "a",
+        "hr",
+        "table",
+        "thead",
+        "tbody",
+        "tr",
+        "th",
+        "td",
+    }
+)
+
+_MAIL_MD_ALLOWED_ATTRS = {
+    "a": ["href", "title", "rel"],
+    "code": ["class"],
+    "th": ["align", "colspan", "rowspan"],
+    "td": ["align", "colspan", "rowspan"],
+}
 
 
 def _smtp_ready() -> bool:
@@ -17,6 +73,143 @@ def _smtp_ready() -> bool:
         and settings.EMAIL_SMTP_USERNAME.strip()
         and settings.EMAIL_SMTP_PASSWORD.strip()
     )
+
+
+def _markdown_to_safe_html(markdown_text: str) -> str:
+    """Render GFM-like markdown to HTML and strip unsafe tags (parity with chat MarkdownMessage)."""
+    text = (markdown_text or "").strip()
+    if not text:
+        return f"<p class='mail-muted' style='margin:0;color:{_MAIL_THEME['muted']};'>No content.</p>"
+
+    md = markdown.Markdown(
+        extensions=[
+            "markdown.extensions.fenced_code",
+            "markdown.extensions.tables",
+            "markdown.extensions.nl2br",
+            "markdown.extensions.sane_lists",
+        ],
+        output_format="html5",
+    )
+    raw_html = md.convert(text)
+    return bleach.clean(
+        raw_html,
+        tags=_MAIL_MD_ALLOWED_TAGS,
+        attributes=_MAIL_MD_ALLOWED_ATTRS,
+        protocols=("http", "https", "mailto"),
+        strip=True,
+    )
+
+
+def _mail_styles() -> str:
+    t = _MAIL_THEME
+    return f"""
+body {{-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;}}
+.mail-page {{ margin:0;background:{t['bg']};padding:24px 16px;font-family:system-ui,-apple-system,'Segoe UI',Arial,sans-serif; }}
+.mail-wrap {{
+  width:100%;max-width:700px;margin:0 auto;background:{t['surface']};
+  border:1px solid {t['border']};border-radius:16px;padding:20px 22px;box-sizing:border-box;
+  box-shadow:0 18px 50px rgba(0,0,0,0.45),0 0 0 1px rgba(56,189,248,0.06);
+}}
+.mail-title {{
+  margin:0 0 8px;font-size:22px;font-weight:650;letter-spacing:-0.02em;line-height:1.2;
+  color:{t['text']};
+  border-left:3px solid {t['accent']};padding:0 0 12px 14px;margin-left:0;
+  border-bottom:1px solid {t['border']};
+}}
+.mail-subtitle {{ margin:0 0 18px;color:{t['muted']};font-size:13px;line-height:1.45; }}
+.mail-badge-wrap {{ margin:0 0 16px; }}
+.mail-badge {{
+  display:inline-block;background:linear-gradient(135deg,{t['accent_dim']},#0369a1);color:#f8fafc;
+  border-radius:999px;padding:8px 14px;font-size:12px;font-weight:600;
+  border:1px solid rgba(125,211,252,0.35);box-shadow:0 4px 14px rgba(14,165,233,0.25);
+}}
+.mail-body {{
+  background:{t['bg_elevated']};
+  border:1px solid {t['border']};border-radius:14px;padding:16px 18px;
+  color:{t['text']};font-size:15px;line-height:1.55;word-break:break-word;
+}}
+/* Markdown inside email — aligned with frontend .md */
+.mail-md > :first-child {{ margin-top:0; }}
+.mail-md > :last-child {{ margin-bottom:0; }}
+.mail-md p {{ margin:0 0 0.7rem; color:{t['text']}; }}
+.mail-md h1,.mail-md h2,.mail-md h3,.mail-md h4,.mail-md h5,.mail-md h6 {{
+  font-weight:650;line-height:1.25;margin:1.1rem 0 0.55rem;color:{t['text']};
+}}
+.mail-md h1 {{ font-size:1.35rem; margin-top:0.4rem; }}
+.mail-md h2 {{ font-size:1.2rem; }}
+.mail-md h3 {{ font-size:1.05rem; }}
+.mail-md h4 {{ font-size:0.98rem; }}
+.mail-md h5,.mail-md h6 {{ font-size:0.92rem;color:{t['muted']}; }}
+.mail-md ul,.mail-md ol {{ margin:0 0 0.8rem;padding-left:1.35rem; }}
+.mail-md li {{ margin-bottom:0.3rem;color:{t['text']}; }}
+.mail-md li > p {{ margin-bottom:0.3rem; }}
+.mail-md strong {{ font-weight:650; }}
+.mail-md em {{ font-style:italic; }}
+.mail-md a {{ color:{t['accent_hover']};text-decoration:underline;text-underline-offset:2px; }}
+.mail-md code {{
+  background:{t['code_bg']};border:1px solid {t['border']};border-radius:6px;
+  padding:0.1rem 0.35rem;font-size:0.86em;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+}}
+.mail-md pre {{
+  background:rgba(0,0,0,0.35);border:1px solid {t['border']};border-radius:10px;
+  padding:0.75rem 0.9rem;overflow-x:auto;margin:0 0 0.9rem;font-size:0.85rem;line-height:1.5;
+}}
+.mail-md pre code {{ background:transparent;border:none;padding:0;font-size:inherit; }}
+.mail-md blockquote {{
+  margin:0 0 0.8rem;padding:0.35rem 0.85rem;border-left:3px solid {t['accent']};
+  color:{t['muted']};background:{t['blockquote_bg']};border-radius:0 8px 8px 0;
+}}
+.mail-md hr {{ border:none;border-top:1px solid {t['border']};margin:1rem 0; }}
+.mail-md table {{
+  width:100%;border-collapse:collapse;margin:0.25rem 0 0.9rem;font-size:0.9rem;
+  border:1px solid {t['border']};border-radius:10px;overflow:hidden;
+}}
+.mail-md thead {{ background:{t['surface_2']}; }}
+.mail-md th,.mail-md td {{ border:1px solid {t['border']};padding:0.55rem 0.7rem;text-align:left;vertical-align:top; }}
+.mail-md th {{ font-weight:650;color:{t['text']}; }}
+.mail-md tbody tr:nth-child(even) {{ background:rgba(255,255,255,0.02); }}
+@media (max-width:600px) {{
+  .mail-page {{ padding:10px 8px !important; }}
+  .mail-wrap {{ padding:14px 14px !important;border-radius:12px !important; }}
+  .mail-body {{ padding:12px 14px !important; }}
+  .mail-title {{ font-size:18px !important; }}
+  .mail-md h1 {{ font-size:1.15rem !important; }}
+  .mail-md h2 {{ font-size:1.05rem !important; }}
+  .mail-md p,.mail-md li {{ font-size:14px !important; }}
+}}
+"""
+
+
+def _render_html_notification(title: str, body: str, suggested_action: str | None) -> str:
+    body_inner = _markdown_to_safe_html(body)
+    badge = ""
+    if suggested_action:
+        badge = (
+            "<p class='mail-badge-wrap'>"
+            "<span class='mail-badge'>"
+            f"Suggested action: {escape(suggested_action)}"
+            "</span></p>"
+        )
+    # Subtle accent in header line (many clients ignore gradient on text).
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>{escape(title)}</title>
+<style>{_mail_styles()}</style>
+</head>
+<body class="mail-page">
+<div class="mail-wrap">
+  <h1 class="mail-title">{escape(title)}</h1>
+  <p class="mail-subtitle">Portfolio-aware market notification</p>
+  {badge}
+  <div class="mail-body mail-md">
+    {body_inner}
+  </div>
+</div>
+</body>
+</html>"""
 
 
 def send_notification(
@@ -71,79 +264,3 @@ def send_notification(
     except Exception as e:
         logger.exception("Email send failed to %s: %s", to_email, e)
         return False
-
-
-def _render_html_notification(title: str, body: str, suggested_action: str | None) -> str:
-    sections = _markdown_sections(body)
-    cards = []
-    for heading, items in sections:
-        rendered_items = "".join(
-            f"<li style='margin:0.25rem 0;color:#dbe7ff;line-height:1.45;'>{escape(item)}</li>" for item in items
-        )
-        cards.append(
-            "<section class='mail-section' style='background:#141c2f;border:1px solid #2b3758;border-radius:12px;padding:14px 16px;margin:0 0 12px;'>"
-            f"<h3 style='margin:0 0 10px;font-size:15px;color:#f8fbff;'>{escape(heading)}</h3>"
-            f"<ul style='margin:0;padding-left:18px'>{rendered_items or '<li style=\"color:#9ab0d5\">No updates.</li>'}</ul>"
-            "</section>"
-        )
-    badge = ""
-    if suggested_action:
-        badge = (
-            "<p style='margin:0 0 14px;'>"
-            "<span style='display:inline-block;background:#1d4ed8;color:#eff6ff;border-radius:999px;padding:6px 12px;font-size:12px;font-weight:600;'>"
-            f"Suggested Action: {escape(suggested_action)}"
-            "</span></p>"
-        )
-    body_html = "".join(cards) or (
-        "<section class='mail-section' style='background:#141c2f;border:1px solid #2b3758;border-radius:12px;padding:14px 16px;'>"
-        f"<p style='margin:0;color:#dbe7ff;line-height:1.5;'>{escape(body)}</p>"
-        "</section>"
-    )
-    return (
-        "<!doctype html><html><head>"
-        "<meta name='viewport' content='width=device-width, initial-scale=1' />"
-        "<style>"
-        "body{-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;}"
-        ".mail-wrap{width:100%;max-width:700px;margin:0 auto;background:#0f172a;border:1px solid #25304d;border-radius:16px;padding:16px;box-sizing:border-box;}"
-        ".mail-section{background:#141c2f;border:1px solid #2b3758;border-radius:12px;padding:14px 16px;margin:0 0 12px;}"
-        "@media (max-width: 600px){"
-        "body{padding:6px !important;}"
-        ".mail-wrap{padding:10px !important;border-radius:10px !important;}"
-        ".mail-section{padding:8px 10px !important;margin-bottom:6px !important;}"
-        "h2{font-size:18px !important;line-height:1.25 !important;}"
-        "h3{font-size:14px !important;}"
-        "li,p{font-size:14px !important;line-height:1.35 !important;}"
-        "}"
-        "</style></head><body style='margin:0;background:#0b1220;padding:24px;font-family:Segoe UI,Arial,sans-serif;'>"
-        "<div class='mail-wrap'>"
-        f"<h2 style='margin:0 0 6px;color:#ffffff;font-size:22px;'>{escape(title)}</h2>"
-        "<p style='margin:0 0 16px;color:#94a3b8;font-size:13px;'>Portfolio-aware market notification</p>"
-        f"{badge}{body_html}"
-        "</div></body></html>"
-    )
-
-
-def _markdown_sections(markdown_text: str) -> list[tuple[str, list[str]]]:
-    sections: list[tuple[str, list[str]]] = []
-    current_heading = "Update"
-    current_items: list[str] = []
-    for raw_line in (markdown_text or "").splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        if line.startswith("## "):
-            if current_items:
-                sections.append((current_heading, current_items))
-            current_heading = line[3:].strip() or "Update"
-            current_items = []
-            continue
-        if line.startswith("### "):
-            current_items.append(f"Asset: {line[4:].strip()}")
-            continue
-        if line.startswith(("- ", "* ")):
-            current_items.append(line[2:].strip())
-        else:
-            current_items.append(line)
-    if current_items:
-        sections.append((current_heading, current_items))
-    return sections
