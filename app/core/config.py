@@ -64,6 +64,8 @@ class Settings(BaseSettings):
     OLLAMA_MODEL: str = "llama3.2"
     OLLAMA_HOSTED_LLAMA31_MODEL: str = "llama3.1"
     OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
+    # Bound httpx calls to Ollama (default client timeout=None can stall for minutes when Ollama is down).
+    OLLAMA_HTTP_TIMEOUT: float = 45.0
     OLLAMA_TEMPERATURE: float = 0.3
     # Optional context window (unset = Ollama default)
     OLLAMA_NUM_CTX: int | None = None

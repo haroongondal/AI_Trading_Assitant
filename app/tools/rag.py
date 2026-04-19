@@ -1,7 +1,10 @@
 """
 RAG tool: vector search over stored news/documents. JS parallel: like a "search knowledge base" API the agent calls.
 """
+import logging
 import os
+
+import httpx
 
 # Belt-and-suspenders (main.py also sets this before other imports).
 os.environ.setdefault("ANONYMIZED_TELEMETRY", "0")
@@ -14,8 +17,23 @@ from langchain_core.tools import tool
 
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
+
 _embeddings = None
 _vectorstore = None
+
+
+def ollama_service_reachable(timeout: float = 3.0) -> bool:
+    """Fast check for scheduler/ingest: chat uses Groq but RAG ingest/embeddings require Ollama."""
+    base = (settings.OLLAMA_BASE_URL or "").rstrip("/")
+    if not base:
+        return False
+    try:
+        r = httpx.get(f"{base}/api/tags", timeout=timeout)
+        return r.status_code == 200
+    except Exception as exc:
+        logger.debug("Ollama health check failed: %s", exc)
+        return False
 
 
 def _get_embeddings():
@@ -24,6 +42,7 @@ def _get_embeddings():
         _embeddings = OllamaEmbeddings(
             base_url=settings.OLLAMA_BASE_URL,
             model=settings.OLLAMA_EMBEDDING_MODEL,
+            client_kwargs={"timeout": settings.OLLAMA_HTTP_TIMEOUT},
         )
     return _embeddings
 

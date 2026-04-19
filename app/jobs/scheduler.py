@@ -21,8 +21,10 @@ from app.services.rag_ingest import ingest_documents
 from app.services.price_fetcher import (
     fetch_crypto_prices,
 )
+from app.services.coin_catalog import PSX_CATALOG_SYMBOLS
 from app.services.email import send_notification as send_email
 from app.services.whatsapp import send_notification as send_whatsapp
+from app.tools.quote import holding_digest_lines
 from app.tools.rag import get_rag_retriever
 from app.tools.web_search import search_web
 from app.agent.stream_sanitize import sanitize_assistant_visible_text
@@ -193,32 +195,27 @@ def _extract_goal_amount(goal_text: str) -> float | None:
         return None
 
 
-def _portfolio_prices_markdown(positions: list[PortfolioPosition], prices: dict[str, float]) -> str:
-    lines: list[str] = []
+def _portfolio_prices_markdown_digest(positions: list[PortfolioPosition], crypto_usd: dict[str, float]) -> tuple[str, float]:
+    """
+    Same quote stack as chat `get_quote` (Twelve Data PSX, Finnhub, etc.), without slow web scrape.
+    Returns (markdown section, sum of USD contributions for holdings we could price).
+    """
+    blocks: list[str] = []
+    total_usd = 0.0
     for p in positions:
         sym = (p.symbol or "").upper().strip()
-        qty = float(p.quantity)
-        if sym in prices:
-            px = prices[sym]
-            lines.extend(
-                [
-                    f"### {sym}",
-                    f"- Symbol: {sym}",
-                    f"- Quantity: {qty:g}",
-                    f"- Price: ${px:,.4f}",
-                    f"- Total Value: ${qty * px:,.2f}",
-                ]
-            )
-        else:
-            lines.extend(
-                [
-                    f"### {sym}",
-                    f"- Symbol: {sym}",
-                    f"- Quantity: {qty:g}",
-                    "- Price: N/A (web/news-only)",
-                ]
-            )
-    return "\n".join(lines) if lines else "- No holdings found."
+        if not sym:
+            continue
+        contrib, row_lines = holding_digest_lines(
+            p.symbol,
+            float(p.quantity),
+            crypto_usd,
+            entry_price=float(p.entry_price),
+        )
+        total_usd += contrib
+        blocks.append(f"### {sym}\n" + "\n".join(row_lines))
+    body = "\n".join(blocks) if blocks else "- No holdings found."
+    return body, total_usd
 
 
 def _clean_line_value(line: str) -> str:
@@ -260,15 +257,24 @@ async def _analyze_and_notify_user(db: AsyncSession, user: User, positions: list
     held_symbols = sorted({(p.symbol or "").upper() for p in positions if (p.symbol or "").strip()})
     held_crypto_symbols = [sym for sym in held_symbols if sym in prices]
     held_non_crypto_symbols = [sym for sym in held_symbols if sym not in prices]
-    portfolio_prices_section = _portfolio_prices_markdown(positions, prices)
+    portfolio_prices_section, portfolio_value = _portfolio_prices_markdown_digest(positions, prices)
+    held_psx = [s for s in held_symbols if s in PSX_CATALOG_SYMBOLS]
     non_crypto_note = ""
-    if held_non_crypto_symbols:
-        non_crypto_note = (
-            "- Non-crypto holdings (web/news-only analysis, no guaranteed live feed): "
-            + ", ".join(held_non_crypto_symbols)
+    footnotes: list[str] = []
+    if held_psx:
+        footnotes.append(
+            "- **PSX equities** (ordinary shares; price often in PKR): "
+            + ", ".join(held_psx)
+            + " — treat as **stocks**, not cryptocurrency (no tokenomics/staking/stablecoin framing)."
         )
+    other_non_crypto = [s for s in held_non_crypto_symbols if s not in PSX_CATALOG_SYMBOLS]
+    if other_non_crypto:
+        footnotes.append(
+            "- Other symbols not in the crypto spot feed (may be equities/FX): " + ", ".join(other_non_crypto)
+        )
+    if footnotes:
+        non_crypto_note = "\n".join(footnotes)
         portfolio_prices_section = portfolio_prices_section + "\n" + non_crypto_note
-    portfolio_value = sum(float(p.quantity) * prices.get((p.symbol or "").upper(), 0.0) for p in positions)
     goal_amount = _extract_goal_amount(user.portfolio_goal or "")
     goal_hint = ""
     if goal_amount is not None:
@@ -301,9 +307,8 @@ async def _analyze_and_notify_user(db: AsyncSession, user: User, positions: list
 Portfolio (user holdings):
 {portfolio_text}
 
-Live crypto prices for held symbols only:
-{portfolio_prices_section or "No held symbols were found in the crypto live-price feed."}
-{non_crypto_note}
+Live / feed prices for held symbols (crypto from CoinGecko; PSX and others via Twelve Data / Finnhub when API keys are set):
+{portfolio_prices_section or "No holdings to price."}
 
 Recent news context:
 {news_context[:3000]}
@@ -314,10 +319,12 @@ Targeted web intelligence:
 Rules:
 - Never dump all market prices.
 - Mention only portfolio symbols or clearly related same-domain candidates.
-- For crypto tickers with known live prices, include the price.
-- For non-crypto assets, use web/news narrative and write "Price: N/A (web/news-only)" if needed.
+- For cryptocurrency in the portfolio with a USD price above, use crypto framing only for those symbols.
+- For **PSX** (Pakistan Stock Exchange) equities listed in the footnotes, use **equity** language: shares, PKR per share, dividends, earnings — never crypto jargon (no tokens, staking, DeFi, stablecoins, or "crypto index funds" for PSX names).
+- If a PSX symbol still shows N/A, say data/config is missing — do not assume it is a crypto asset.
+- For other non-crypto assets without a price line, use web/news context and "Price: N/A" if needed.
 - Keep each section concise and useful.
-- Analyze the goal realism using estimated portfolio value and timeline context from user goal. If target appears aggressive, explicitly say so.
+- Analyze the goal realism using estimated portfolio value and timeline context from user goal. If target appears aggressive, explicitly say so. If the goal is in PKR but you only have USD estimates (or vice versa), state the limitation briefly instead of claiming portfolio value is zero without explanation.
 
 Goal realism context:
 {goal_hint or f"Estimated current portfolio value from live-priced holdings: ${portfolio_value:,.2f}."}
@@ -547,6 +554,9 @@ def start_scheduler():
         trigger,
         id="news_then_analyze",
         replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        # If news+ingest+analyze overruns the cron interval, skip overlapping starts instead of piling up.
     )
     scheduler.start()
     logger.info("Scheduler started: cron=%s — news ingest + per-user analysis", cron_expr)

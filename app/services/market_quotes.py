@@ -106,22 +106,29 @@ def fetch_twelve_data_psx_last(symbol: str, api_key: str) -> tuple[float, str] |
     sym = symbol.upper().strip()
     if not sym:
         return None
-    # Two attempts keep PSX coverage without serial latency on every `get_quote` call.
+    # Several shapes — Twelve Data account/plan differences; PSX is MIC XKAR.
     param_variants: list[dict[str, str]] = [
         {"symbol": sym, "mic_code": "XKAR", "apikey": key},
         {"symbol": f"{sym}:PSX", "apikey": key},
+        {"symbol": f"{sym}:XKAR", "apikey": key},
+        {"symbol": sym, "exchange": "PSX", "apikey": key},
+        {"symbol": sym, "exchange": "XKAR", "apikey": key},
     ]
-    try:
-        with httpx.Client(timeout=14.0) as client:
-            for params in param_variants:
+    with httpx.Client(timeout=14.0) as client:
+        for params in param_variants:
+            try:
                 r = client.get("https://api.twelvedata.com/quote", params=params)
                 r.raise_for_status()
                 data: dict[str, Any] = r.json()
                 row = _twelve_data_quote_parse(data, sym)
                 if row:
-                    logger.debug("twelvedata_psx_ok sym=%s params=%s", sym, {k: v for k, v in params.items() if k != "apikey"})
+                    logger.debug(
+                        "twelvedata_psx_ok sym=%s params=%s",
+                        sym,
+                        {k: v for k, v in params.items() if k != "apikey"},
+                    )
                     return row
-    except Exception as e:
-        logger.warning("twelvedata_quote_failed sym=%s err=%s", sym, e)
-        return None
+            except Exception as e:
+                logger.debug("twelvedata_psx_try sym=%s err=%s params=%s", sym, e, list(params.keys()))
+                continue
     return None

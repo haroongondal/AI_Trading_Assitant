@@ -109,6 +109,185 @@ def _equity_web_query(sym: str) -> str:
     return f"{sym} stock share price today USD NASDAQ NYSE"
 
 
+def _twelve_psx_quote(sym: str, top_crypto: dict[str, float]) -> tuple[float, str, str] | None:
+    """
+    Twelve Data PSX row if configured. Returns (last_price, currency, source_label) or None.
+    Only when symbol is not in the crypto top-markets map.
+    """
+    td_key = (settings.TWELVEDATA_API_KEY or "").strip()
+    if not td_key or sym in top_crypto:
+        return None
+    psx_row = market_quotes.fetch_twelve_data_psx_last(sym, td_key)
+    if not psx_row:
+        return None
+    last_px, curr = psx_row
+    return float(last_px), str(curr).upper(), "Twelve Data PSX"
+
+
+def holding_digest_lines(
+    symbol: str,
+    quantity: float,
+    top_crypto: dict[str, float],
+    *,
+    entry_price: float | None = None,
+) -> tuple[float, list[str]]:
+    """
+    Scheduled notification / digest: same provider stack as get_quote (without slow DDG).
+    Copy is end-user friendly (no API-key or tooling instructions). Falls back to portfolio
+    entry price for book value when live quotes fail.
+    """
+    sym = normalize_trading_symbol(symbol)
+    qty = float(quantity)
+    ep = float(entry_price) if entry_price is not None else 0.0
+
+    def _book_value_lines() -> tuple[float, list[str]]:
+        if ep <= 0:
+            return 0.0, ["- Live quote unavailable."]
+        if sym in PSX_CATALOG_SYMBOLS:
+            pkr_book = qty * ep
+            fx = market_quotes.fetch_pkr_per_usd_open_feed()
+            if fx and fx > 0:
+                contrib = qty * (ep / fx)
+                return contrib, [
+                    f"- Your average entry: {ep:,.4f} PKR/share",
+                    f"- Book value: {pkr_book:,.2f} PKR (~${contrib:,.2f} USD)",
+                ]
+            return 0.0, [
+                f"- Your average entry: {ep:,.4f} PKR/share",
+                f"- Book value: {pkr_book:,.2f} PKR",
+            ]
+        contrib = qty * ep
+        return contrib, [
+            f"- Your average entry: ${ep:,.4f} USD",
+            f"- Book value: ${contrib:,.2f} USD",
+        ]
+
+    if not sym:
+        return _book_value_lines()
+
+    lines: list[str] = [f"- Symbol: {sym}", f"- Quantity: {qty:g}"]
+
+    def _psx_live_block(row: tuple[float, str, str]) -> tuple[float, list[str]] | None:
+        last_px, curr, _src = row
+        if curr == "PKR":
+            fx = market_quotes.fetch_pkr_per_usd_open_feed()
+            if fx and fx > 0:
+                usd_per_share = last_px / fx
+                contrib = qty * usd_per_share
+                extra = [
+                    f"- Last: {last_px:,.4f} PKR/share",
+                    f"- Holdings (est.): ~${contrib:,.2f} USD",
+                ]
+                return contrib, extra
+            extra = [
+                f"- Last: {last_px:,.4f} PKR/share",
+                f"- Holdings: {qty * last_px:,.2f} PKR",
+            ]
+            return 0.0, extra
+        if curr == "USD":
+            contrib = qty * last_px
+            return contrib, [
+                f"- Last: ${last_px:,.4f} USD/share",
+                f"- Holdings: ${contrib:,.2f} USD",
+            ]
+        return None
+
+    fh = (settings.FINNHUB_API_KEY or "").strip()
+    av = (settings.ALPHA_VANTAGE_API_KEY or "").strip()
+
+    # Known PSX: resolve as equities first (never treat CoinGecko top list as ground truth here).
+    if sym in PSX_CATALOG_SYMBOLS:
+        row = _twelve_psx_quote(sym, top_crypto)
+        if row:
+            block = _psx_live_block(row)
+            if block:
+                contrib, extra = block
+                lines.extend(extra)
+                return contrib, lines
+        if fh:
+            u = market_quotes.fetch_finnhub_last_usd(sym, fh)
+            if u is not None:
+                contrib = qty * u
+                lines.extend(
+                    [
+                        f"- Last: ${u:,.6f} USD",
+                        f"- Holdings: ${contrib:,.2f} USD",
+                    ]
+                )
+                return contrib, lines
+        if av:
+            u = market_quotes.fetch_alpha_vantage_last_usd(sym, av)
+            if u is not None:
+                contrib = qty * u
+                lines.extend(
+                    [
+                        f"- Last: ${u:,.6f} USD",
+                        f"- Holdings: ${contrib:,.2f} USD",
+                    ]
+                )
+                return contrib, lines
+        c, book_lines = _book_value_lines()
+        lines.extend(book_lines)
+        return c, lines
+
+    px = _top_crypto_price_only(sym, top_crypto)
+    if px is not None:
+        contrib = qty * px
+        lines.extend(
+            [
+                f"- Last: ${px:,.6f} USD",
+                f"- Holdings: ${contrib:,.2f} USD",
+            ]
+        )
+        return contrib, lines
+
+    if fh:
+        u = market_quotes.fetch_finnhub_last_usd(sym, fh)
+        if u is not None:
+            contrib = qty * u
+            lines.extend(
+                [
+                    f"- Last: ${u:,.6f} USD",
+                    f"- Holdings: ${contrib:,.2f} USD",
+                ]
+            )
+            return contrib, lines
+    if av:
+        u = market_quotes.fetch_alpha_vantage_last_usd(sym, av)
+        if u is not None:
+            contrib = qty * u
+            lines.extend(
+                [
+                    f"- Last: ${u:,.6f} USD",
+                    f"- Holdings: ${contrib:,.2f} USD",
+                ]
+            )
+            return contrib, lines
+
+    row = _twelve_psx_quote(sym, top_crypto)
+    if row:
+        block = _psx_live_block(row)
+        if block:
+            contrib, extra = block
+            lines.extend(extra)
+            return contrib, lines
+
+    cpx = _coingecko_search_price(sym)
+    if cpx is not None:
+        contrib = qty * cpx
+        lines.extend(
+            [
+                f"- Last: ${cpx:,.6f} USD",
+                f"- Holdings: ${contrib:,.2f} USD",
+            ]
+        )
+        return contrib, lines
+
+    c, book_lines = _book_value_lines()
+    lines.extend(book_lines)
+    return c, lines
+
+
 @tool
 def get_quote(symbol: str) -> str:
     """Return the latest spot price (USD) for a single ticker so the agent can size positions.
@@ -134,6 +313,25 @@ def get_quote(symbol: str) -> str:
     if px is not None:
         return f"{sym} spot price: {px:.6f} USD (source: CoinGecko live)"
 
+    td_key = (settings.TWELVEDATA_API_KEY or "").strip()
+    # Known PSX tickers: Twelve Data before Finnhub to avoid wrong-security matches.
+    if td_key and sym in PSX_CATALOG_SYMBOLS and sym not in top_crypto:
+        psx_row = market_quotes.fetch_twelve_data_psx_last(sym, td_key)
+        if psx_row:
+            last_px, curr = psx_row
+            fx = market_quotes.fetch_pkr_per_usd_open_feed()
+            usd_hint = ""
+            if curr == "PKR" and fx:
+                usd_per_share = last_px / fx
+                usd_hint = f" (~{usd_per_share:.6f} USD/share at open USD/PKR≈{fx:.4f})"
+            elif curr == "USD":
+                usd_hint = " (already in USD per share)"
+            return (
+                f"{sym} quote (Twelve Data, Pakistan listing): {last_px:.4f} {curr} per share{usd_hint}. "
+                f"If the user invested in PKR: shares = total_pkr_invested / price_pkr; entry_price = PKR per share. "
+                f"Do not ask for per-share PKR when they already gave total PKR invested."
+            )
+
     fh = (settings.FINNHUB_API_KEY or "").strip()
     if fh:
         u = market_quotes.fetch_finnhub_last_usd(sym, fh)
@@ -145,7 +343,6 @@ def get_quote(symbol: str) -> str:
         if u is not None:
             return f"{sym} spot price: {u:.6f} USD (source: Alpha Vantage)"
 
-    td_key = (settings.TWELVEDATA_API_KEY or "").strip()
     if td_key and sym not in top_crypto:
         psx_row = market_quotes.fetch_twelve_data_psx_last(sym, td_key)
         if psx_row:
