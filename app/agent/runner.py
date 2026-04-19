@@ -344,7 +344,10 @@ async def stream_agent_response(
         yield "Something went wrong. Please try again."
         await asyncio.sleep(0)
         return
-    llm = llm_no_tools.bind_tools(TOOLS) if tool_capable else llm_no_tools
+    bind_tool_kw: dict = {}
+    if "groq.com" in (selected.base_url or "").lower():
+        bind_tool_kw["parallel_tool_calls"] = False
+    llm = llm_no_tools.bind_tools(TOOLS, **bind_tool_kw) if tool_capable else llm_no_tools
     tool_call_cache: dict[tuple[str, str], str] = {}
 
     def _tool_cache_key(name: str, args: dict | None) -> tuple[str, str]:
@@ -481,6 +484,8 @@ async def stream_agent_response(
                 if tool_capable and (
                     "failed to parse tool call" in err_s
                     or "parse tool call arguments" in err_s
+                    or "failed to call a function" in err_s
+                    or "failed_generation" in err_s
                 ):
                     logger.warning(
                         "runner_stream_recover_bad_tool_call model=%s err=%s",
@@ -490,8 +495,8 @@ async def stream_agent_response(
                     messages.append(
                         SystemMessage(
                             content=(
-                                "The model emitted a malformed tool call. Answer in plain text only "
-                                "(no tools) using the user message and any prior context you already have."
+                                "Tool calling failed mid-stream (malformed or provider rejected the call). "
+                                "Answer in plain text only (no tools) using the user message and any prior context you already have."
                             )
                         )
                     )

@@ -52,6 +52,10 @@ def get_llm(model_id: str | None = None):
         }
         if extra_body:
             kwargs["extra_body"] = extra_body
+        # Groq sometimes fails streaming tool calls when parallel_tool_calls is enabled
+        # ("Failed to call a function" / failed_generation). Prefer one tool at a time.
+        if "groq.com" in base_url_lower:
+            kwargs["parallel_tool_calls"] = False
         return ChatOpenAI(**kwargs)
 
     raise ValueError(f"Unsupported transport for model '{spec.id}'")
