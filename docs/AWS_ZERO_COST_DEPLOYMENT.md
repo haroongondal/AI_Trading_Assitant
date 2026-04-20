@@ -32,6 +32,8 @@ flowchart LR
   ociVm --> ollamaSvc[OllamaService]
 ```
 
+
+
 ## Automation Option
 
 If you want SDK-based provisioning helpers instead of creating the base infrastructure by hand, use the toolkit in `backend/deploy/`.
@@ -48,8 +50,6 @@ Those scripts provision the base AWS and OCI infrastructure, and they read cloud
 ### All-AWS option: API EC2 + Ollama EC2
 
 If you do not want OCI, run both `provision_aws_backend.py` and `provision_aws_ollama.py` in the **same region and VPC**. Put the Ollama instance in a subnet the backend can reach (often a private subnet). Set `OLLAMA_BASE_URL` on the API host to `http://<ollama-private-ip>:11434`. The Ollama provisioner security group only opens port `11434` to your backend security group (and optionally your VPC CIDR). The Ollama EC2 is usually **not** free-tier-sized if you want acceptable model performance; size it to your budget.
-
-
 
 ## Why This Architecture
 
@@ -278,9 +278,11 @@ cd /opt/ai-trading-assistant
 git clone <YOUR_BACKEND_REPO_URL> backend
 cd backend
 python3 -m venv .venv
-source .venv/bin/activate
+. .venv/bin/activate
+sudo chown -R $USER:$USER <Project-path>   
 pip install --upgrade pip
 pip install -e .
+deactivate
 mkdir -p data
 ```
 

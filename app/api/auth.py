@@ -55,6 +55,13 @@ def _auth_error_redirect_url() -> str:
     return f"{base}/?{q}"
 
 
+def _auth_error_redirect_with_reason(reason: str) -> RedirectResponse:
+    base = settings.FRONTEND_URL.rstrip("/")
+    base_q = settings.AUTH_ERROR_REDIRECT_QUERY.strip()
+    query = f"{base_q}&auth_reason={reason}" if base_q else f"auth_reason={reason}"
+    return RedirectResponse(url=f"{base}/?{query}", status_code=302)
+
+
 def _internal_id_from_google_sub(google_sub: str) -> str:
     return hashlib.sha256(f"google:{google_sub}".encode()).hexdigest()
 
@@ -143,16 +150,19 @@ async def google_callback(
 ):
     if error:
         logger.warning("Google OAuth error param: %s", error)
-        return RedirectResponse(url=_auth_error_redirect_url(), status_code=302)
+        return _auth_error_redirect_with_reason("google_error")
     if not code or not state:
-        raise HTTPException(status_code=400, detail="Missing code or state")
+        logger.warning("Google OAuth callback missing code/state")
+        return _auth_error_redirect_with_reason("missing_code_or_state")
 
     cookie_state = request.cookies.get(settings.OAUTH_STATE_COOKIE_NAME)
     if not cookie_state or cookie_state != state:
-        raise HTTPException(status_code=400, detail="Invalid OAuth state")
+        logger.warning("Google OAuth state mismatch (cookie missing or different)")
+        return _auth_error_redirect_with_reason("invalid_oauth_state")
 
     if not _oauth_ready():
-        raise HTTPException(status_code=503, detail=_oauth_misconfiguration_detail())
+        logger.error("Google OAuth callback while misconfigured: %s", _oauth_misconfiguration_detail())
+        return _auth_error_redirect_with_reason("oauth_misconfigured")
 
     token_url = settings.GOOGLE_OAUTH_TOKEN_URL.strip()
     userinfo_url = settings.GOOGLE_OAUTH_USERINFO_URL.strip()
@@ -234,9 +244,21 @@ async def google_callback(
 
 
 @router.post("/logout")
-async def logout():
+async def logout(request: Request):
+    same_site, secure = _cookie_policy_for_request(request)
     r = JSONResponse({"ok": True})
-    r.delete_cookie(settings.AUTH_ACCESS_COOKIE_NAME, path=settings.AUTH_COOKIE_PATH)
+    r.delete_cookie(
+        settings.AUTH_ACCESS_COOKIE_NAME,
+        path=settings.AUTH_COOKIE_PATH,
+        samesite=same_site,  # type: ignore[arg-type]
+        secure=secure,
+    )
+    r.delete_cookie(
+        settings.OAUTH_STATE_COOKIE_NAME,
+        path=settings.AUTH_COOKIE_PATH,
+        samesite=same_site,  # type: ignore[arg-type]
+        secure=secure,
+    )
     return r
 
 
