@@ -4,6 +4,7 @@ Google OAuth login: redirect to Google, callback issues JWT in HttpOnly cookie, 
 import hashlib
 import logging
 import secrets
+from urllib.parse import quote
 from urllib.parse import urlencode
 from urllib.parse import urlparse
 
@@ -116,6 +117,14 @@ def _set_oauth_state_cookie(response: RedirectResponse, state: str, request: Req
         path=settings.AUTH_COOKIE_PATH,
         secure=secure,
     )
+
+
+def _build_post_login_redirect_url(jwt_value: str) -> str:
+    base = settings.FRONTEND_URL.rstrip("/") + "/"
+    if not settings.AUTH_RETURN_TOKEN_IN_FRAGMENT:
+        return base
+    # Put token in fragment so it is not sent to servers via request URLs.
+    return f"{base}#auth_token={quote(jwt_value)}"
 
 
 @router.get("/google/login")
@@ -237,7 +246,7 @@ async def google_callback(
         final_id = user.id
 
     jwt_str = _create_jwt(final_id)
-    redirect = RedirectResponse(url=settings.FRONTEND_URL.rstrip("/") + "/", status_code=302)
+    redirect = RedirectResponse(url=_build_post_login_redirect_url(jwt_str), status_code=302)
     redirect.delete_cookie(settings.OAUTH_STATE_COOKIE_NAME, path=settings.AUTH_COOKIE_PATH)
     _set_auth_cookie(redirect, jwt_str, request)
     return redirect

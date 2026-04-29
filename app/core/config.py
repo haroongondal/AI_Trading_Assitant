@@ -192,6 +192,8 @@ class Settings(BaseSettings):
     AUTH_COOKIE_SAMESITE: str = "lax"
     # Set true behind HTTPS in production (required if frontend is on a different site and SameSite=None)
     AUTH_COOKIE_SECURE: bool = False
+    # Fallback for browsers blocking third-party cookies: include JWT in redirect hash after OAuth callback.
+    AUTH_RETURN_TOKEN_IN_FRAGMENT: bool = True
 
     @field_validator("OLLAMA_NUM_CTX", mode="before")
     @classmethod
